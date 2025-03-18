@@ -4,6 +4,7 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Union
 import os
 import logging
+import io
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +20,8 @@ class DataLoader:
         self.sample_datasets = {
             "sachs": self._load_sachs,
             "boston_housing": self._load_boston_housing,
-            "airfoil": self._load_airfoil
+            "airfoil": self._load_airfoil,
+            "galton": self._load_galton
         }
     
     def load_file(self, file_path: str, **kwargs) -> Tuple[pd.DataFrame, Optional[Dict[str, Any]]]:
@@ -121,6 +123,14 @@ class DataLoader:
                 "n_variables": 6,
                 "n_samples": 1503,
                 "domain": "Engineering/Aerodynamics"
+            },
+            {
+                "id": "galton",
+                "name": "Galton Height Data",
+                "description": "Francis Galton's dataset on heights of parents and their children.",
+                "n_variables": 5,
+                "n_samples": 934,
+                "domain": "Genetics/Heredity"
             }
         ]
     
@@ -277,6 +287,72 @@ class DataLoader:
                 "source": "sample",
                 "name": "NASA Airfoil Self-Noise Dataset (Simulated)",
                 "description": "Simulated data with similar structure to Airfoil dataset (error loading original)",
+                "variables": {col: {"description": f"Simulated {col}"} for col in columns},
+                "ground_truth_available": False,
+                "error": str(e)
+            }
+            
+            return df, metadata
+
+    def _load_galton(self) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+        """Load Galton height dataset"""
+        try:
+            # Try to load from a file if available
+            file_path = os.path.join("data", "samples", "galton_heights.csv")
+            if os.path.exists(file_path):
+                df = pd.read_csv(file_path)
+            else:
+                # Load from the embedded data
+                with open("core/data/local_datasets/Galton_processed.txt", 'r') as file:
+                    galton_data = file.read()
+                
+                # Create a StringIO object and read as CSV with tab delimiter
+                df = pd.read_csv(io.StringIO(galton_data), sep='\t')
+                
+            # Preprocess the dataset for causal discovery algorithms
+            # Convert 'family' column to numeric by encoding as categorical
+            # This fixes the issue with strings like '136A' that cause errors in algorithms like LiNGAM
+            df['family'] = pd.Categorical(df['family']).codes
+            
+            # Ensure all columns are numeric
+            for col in df.columns:
+                if not pd.api.types.is_numeric_dtype(df[col]):
+                    try:
+                        df[col] = pd.to_numeric(df[col])
+                    except:
+                        df[col] = pd.Categorical(df[col]).codes
+            
+            # Add metadata
+            metadata = {
+                "source": "sample",
+                "name": "Galton Height Data",
+                "description": "Francis Galton's dataset on heights of parents and their children",
+                "citation": "Galton, F. (1886). Regression towards mediocrity in hereditary stature. Journal of the Anthropological Institute of Great Britain and Ireland, 15, 246-263.",
+                "variables": {
+                    "family": {"description": "Family identifier (categorical, encoded as numeric)"},
+                    "father": {"description": "Father's height in inches"},
+                    "mother": {"description": "Mother's height in inches"},
+                    "Gender": {"description": "Child's gender (0 = male, 1 = female)"},
+                    "Height": {"description": "Child's height in inches"}
+                },
+                "preprocessing": "Family ID encoded as categorical numeric to ensure compatibility with causal discovery algorithms",
+                "ground_truth_available": True
+            }
+            
+            return df, metadata
+        
+        except Exception as e:
+            logger.error(f"Error loading Galton height dataset: {str(e)}")
+            
+            # Create fallback data
+            data = np.random.randn(100, 5)
+            columns = ["family", "father", "mother", "Gender", "Height"]
+            df = pd.DataFrame(data, columns=columns)
+            
+            metadata = {
+                "source": "sample",
+                "name": "Galton Height Data (Simulated)",
+                "description": "Simulated data with similar structure to Galton's height dataset (error loading original)",
                 "variables": {col: {"description": f"Simulated {col}"} for col in columns},
                 "ground_truth_available": False,
                 "error": str(e)

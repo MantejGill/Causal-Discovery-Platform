@@ -7,6 +7,7 @@ from core.data.profiler import DataProfiler
 from core.data.preprocessor import DataPreprocessor
 from core.viz.distribution import DataVisualizer
 from core.algorithms.selector import AlgorithmSelector
+from core.llm.algorithm_recommender import LLMAlgorithmRecommender, display_llm_recommendations
 
 # Ensure session state is initialized
 for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor', 
@@ -384,5 +385,27 @@ else:
             st.session_state.current_judgments = profile["judgments"].copy()
             update_recommendations()
             st.experimental_rerun()
+        
+        # Add a divider for visual separation
+        st.divider()
+        
+        # Add LLM-based recommendations section with toggle
+        st.subheader("AI-Powered Algorithm Recommendations")
+        
+        use_llm_recommendations = st.toggle(
+            "Use LLM for detailed algorithm recommendations",
+            value=False,
+            help="When enabled, uses Large Language Models to provide detailed explanations for algorithm recommendations"
+        )
+        
+        if use_llm_recommendations:
+            # Display LLM-based recommendations
+            display_llm_recommendations(
+                llm_adapter=st.session_state.llm_adapter,
+                data_profile=profile,
+                judgments=st.session_state.current_judgments
+            )
+        else:
+            st.info("Toggle the switch above to get AI-powered detailed recommendations with explanations for why each algorithm is suitable for your dataset.")
     else:
         st.info("Data profile not available. Please load or preprocess data first.")
