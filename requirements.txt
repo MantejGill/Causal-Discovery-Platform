@@ -1,0 +1,35 @@
+# Core dependencies
+streamlit
+pandas
+numpy
+networkx
+plotly
+scipy
+scikit-learn
+dotenv
+
+# UI components
+plotly-express
+matplotlib
+seaborn
+graphviz
+
+# Data handling
+openpyxl
+xlrd
+pyarrow
+category_encoders
+
+# Causal discovery algorithms
+causal-learn
+
+# LLM integration
+openai
+aiohttp
+tiktoken
+pydantic
+tenacity
+
+# Database
+sqlalchemy
+alembic
