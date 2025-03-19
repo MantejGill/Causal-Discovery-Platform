@@ -5,6 +5,8 @@ from typing import Dict, List, Optional, Tuple, Any, Union
 import logging
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler
 from sklearn.impute import SimpleImputer, KNNImputer
+import networkx as nx
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -485,3 +487,53 @@ class DataPreprocessor:
         }
         
         return summary
+    
+
+    # Add to core/data/preprocessor.py - or integrate with the existing methods
+
+    def handle_missing_values_causal(self, 
+                                causal_graph: Optional[nx.DiGraph] = None) -> pd.DataFrame:
+        """
+        Handle missing values with causal awareness
+        
+        Args:
+            causal_graph: Optional causal graph to guide imputation
+            
+        Returns:
+            DataFrame with imputed values
+        """
+        try:
+            from core.data.missing_data import CausalMissingDataHandler
+            
+            # Initialize causal missing data handler
+            handler = CausalMissingDataHandler()
+            
+            # Detect missingness type
+            missingness_type = handler.detect_missingness_type(self.current_data)
+            
+            # Perform appropriate imputation
+            if missingness_type == "MCAR":
+                # For MCAR, we can use simple methods
+                imputed_data = handler.impute_mcar(self.current_data)
+            elif missingness_type == "MAR":
+                # For MAR, use multiple imputation
+                imputed_data = handler.impute_mar(self.current_data, causal_graph)
+            else:
+                # For MNAR, use more complex methods
+                imputed_data = handler.impute_mnar(self.current_data, causal_graph)
+            
+            # Update current data
+            self.current_data = imputed_data
+            
+            # Record the preprocessing step
+            self.preprocessing_steps.append({
+                "type": "missing_values_causal",
+                "missingness_type": missingness_type,
+                "causal_graph_used": causal_graph is not None
+            })
+            
+            return self.current_data
+            
+        except Exception as e:
+            logger.error(f"Error handling missing values with causal awareness: {str(e)}")
+            raise

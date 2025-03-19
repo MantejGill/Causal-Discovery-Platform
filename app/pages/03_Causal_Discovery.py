@@ -109,8 +109,10 @@ else:
         granger = algorithm_selector.get_algorithms_by_group("granger")
         
         # Create tabs for each algorithm group
-        alg_tab1, alg_tab2, alg_tab3, alg_tab4, alg_tab5 = st.tabs([
-            "Constraint-Based", "Score-Based", "FCM-Based", "Hidden Causal", "Granger Causality"
+        # Create tabs for different algorithm groups
+        alg_tab1, alg_tab2, alg_tab3, alg_tab4, alg_tab5, alg_tab6 = st.tabs([
+            "Constraint-Based", "Score-Based", "FCM-Based", "Hidden Causal", 
+            "Granger Causality", "Advanced Methods"  # Added new tab
         ])
         
         with alg_tab1:
@@ -227,6 +229,316 @@ else:
                             
                             except Exception as e:
                                 st.error(f"Error running {alg_id}: {str(e)}")
+        
+        with alg_tab6:
+            st.write("These advanced methods support nonlinear relationships, time series, and nonstationarity.")
+            
+            advanced_method_type = st.selectbox(
+                "Advanced method type",
+                ["Pairwise Nonlinear", "Time Series", "Nonstationary Data"]
+            )
+            
+            if advanced_method_type == "Pairwise Nonlinear":
+                st.write("These methods determine causal direction between two variables with nonlinear relationships.")
+                
+                # Select two variables
+                col1, col2 = st.columns(2)
+                with col1:
+                    x_var = st.selectbox("First variable", st.session_state.df.columns, key="nonlinear_x")
+                with col2:
+                    other_cols = [col for col in st.session_state.df.columns if col != x_var]
+                    y_var = st.selectbox("Second variable", other_cols, key="nonlinear_y")
+                
+                # Select nonlinear method
+                nonlinear_method = st.selectbox(
+                    "Nonlinear method",
+                    ["anm", "pnl"],
+                    format_func=lambda x: {
+                        "anm": "Additive Noise Model (ANM)",
+                        "pnl": "Post-Nonlinear Model (PNL)"
+                    }.get(x, x)
+                )
+                
+                # Method-specific parameters
+                if nonlinear_method == "anm":
+                    regression_method = st.selectbox(
+                        "Regression method",
+                        ["gp"],
+                        format_func=lambda x: {
+                            "gp": "Gaussian Process Regression"
+                        }.get(x, x)
+                    )
+                    params = {"regression_method": regression_method}
+                elif nonlinear_method == "pnl":
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        f1_degree = st.slider("f1 polynomial degree", 1, 5, 3)
+                    with col2:
+                        f2_degree = st.slider("f2 polynomial degree", 1, 5, 3)
+                    
+                    independence_test = st.selectbox(
+                        "Independence test",
+                        ["hsic", "pearson"],
+                        format_func=lambda x: {
+                            "hsic": "Hilbert-Schmidt Independence Criterion",
+                            "pearson": "Pearson Correlation"
+                        }.get(x, x)
+                    )
+                    
+                    params = {
+                        "f1_degree": f1_degree,
+                        "f2_degree": f2_degree,
+                        "independence_test": independence_test
+                    }
+                
+                # Button to run nonlinear algorithm
+                if st.button("Run Nonlinear Analysis"):
+                    with st.spinner(f"Running {nonlinear_method}..."):
+                        try:
+                            # Get indices of selected variables
+                            x_idx = list(st.session_state.df.columns).index(x_var)
+                            y_idx = list(st.session_state.df.columns).index(y_var)
+                            
+                            # Extract data for selected variables
+                            selected_data = st.session_state.df[[x_var, y_var]].values
+                            
+                            # Run algorithm
+                            result = algorithm_executor.execute_algorithm(nonlinear_method, 
+                                                                    st.session_state.df[[x_var, y_var]], 
+                                                                    params)
+                            
+                            if result["status"] == "success":
+                                # Store result
+                                st.session_state.causal_graphs[f"{nonlinear_method}_{x_var}_{y_var}"] = result
+                                st.session_state.current_graph = f"{nonlinear_method}_{x_var}_{y_var}"
+                                
+                                # Display result
+                                st.success(f"Successfully determined causal direction")
+                                
+                                # Show direction and confidence
+                                causal_result = result["causal_learn_result"]
+                                direction = causal_result["direction"]
+                                confidence = causal_result.get("confidence", 0.0)
+                                
+                                direction_str = f"{x_var} → {y_var}" if direction == "0->1" else f"{y_var} → {x_var}"
+                                
+                                st.write(f"**Causal Direction:** {direction_str}")
+                                st.write(f"**Confidence:** {confidence:.3f}")
+                                
+                                # Visualize result
+                                node_labels = {0: x_var, 1: y_var}
+                                graph_viz = CausalGraphVisualizer()
+                                fig = graph_viz.visualize_graph(
+                                    graph=result["graph"],
+                                    node_labels=node_labels,
+                                    show_confidence=True
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.error(f"Error running {nonlinear_method}: {result.get('error', 'Unknown error')}")
+                        
+                        except Exception as e:
+                            st.error(f"Error running {nonlinear_method}: {str(e)}")
+            
+            elif advanced_method_type == "Time Series":
+                st.write("These methods are designed for time-ordered data to discover causal relationships over time.")
+                
+                # Time series method selection
+                ts_method = st.selectbox(
+                    "Time series method",
+                    ["timeseries_grangervar", "timeseries_granger_pairwise", "var_lingam"],
+                    format_func=lambda x: {
+                        "timeseries_grangervar": "Vector Autoregression with Granger Causality",
+                        "timeseries_granger_pairwise": "Pairwise Granger Causality",
+                        "var_lingam": "VAR-LiNGAM (Vector Autoregressive LiNGAM)"
+                    }.get(x, x)
+                )
+                
+                # Common parameters
+                col1, col2 = st.columns(2)
+                with col1:
+                    max_lags = st.slider("Maximum Lags", 1, 10, 3)
+                with col2:
+                    alpha = st.slider("Significance Level", 0.01, 0.10, 0.05, 0.01)
+                
+                detect_instantaneous = st.checkbox("Detect instantaneous effects", value=True)
+                combine_graphs = st.checkbox("Combine temporal and instantaneous graphs", value=True)
+                
+                # Method-specific parameters
+                params = {
+                    "lags": max_lags,
+                    "alpha": alpha,
+                    "detect_instantaneous": detect_instantaneous,
+                    "combine_graphs": combine_graphs,
+                    "var_names": list(st.session_state.df.columns)
+                }
+                
+                if ts_method == "timeseries_grangervar" or ts_method == "timeseries_granger_pairwise":
+                    params["method"] = ts_method.replace("timeseries_", "")
+                
+                # Button to run time series algorithm
+                if st.button("Run Time Series Analysis"):
+                    with st.spinner(f"Running {ts_method}..."):
+                        try:
+                            # Check if data appears to be time-ordered
+                            st.info("Note: Ensure your data is properly time-ordered for meaningful time series analysis.")
+                            
+                            # Run algorithm
+                            result = algorithm_executor.execute_algorithm(ts_method, 
+                                                                    st.session_state.df, 
+                                                                    params)
+                            
+                            if result["status"] == "success":
+                                # Store result
+                                ts_id = f"{ts_method}_lag{max_lags}"
+                                st.session_state.causal_graphs[ts_id] = result
+                                st.session_state.current_graph = ts_id
+                                
+                                # Display result
+                                st.success(f"Successfully ran {ts_method}")
+                                
+                                # Visualize result
+                                node_labels = {i: name for i, name in enumerate(st.session_state.df.columns)}
+                                graph_viz = CausalGraphVisualizer()
+                                
+                                # If available, show temporal visualization
+                                try:
+                                    fig = graph_viz.visualize_temporal_graph(
+                                        graph=result["graph"],
+                                        max_lags=max_lags,
+                                        node_labels=node_labels
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                except:
+                                    # Fall back to standard visualization
+                                    fig = graph_viz.visualize_graph(
+                                        graph=result["graph"],
+                                        node_labels=node_labels,
+                                        show_confidence=True
+                                    )
+                                    st.plotly_chart(fig, use_container_width=True)
+                                
+                                # Show instantaneous effects if available
+                                if detect_instantaneous and not combine_graphs:
+                                    if "instantaneous_graph" in result["causal_learn_result"]:
+                                        st.subheader("Instantaneous Effects")
+                                        fig_inst = graph_viz.visualize_graph(
+                                            graph=result["causal_learn_result"]["instantaneous_graph"],
+                                            node_labels=node_labels,
+                                            show_confidence=True
+                                        )
+                                        st.plotly_chart(fig_inst, use_container_width=True)
+                            else:
+                                st.error(f"Error running {ts_method}: {result.get('error', 'Unknown error')}")
+                        
+                        except Exception as e:
+                            st.error(f"Error running {ts_method}: {str(e)}")
+            
+            elif advanced_method_type == "Nonstationary Data":
+                st.write("These methods leverage changes in data distributions across time or domains to discover causal relationships.")
+                
+                st.info("To use nonstationary methods, you need to provide time/domain indices for your data.")
+                
+                # Time/domain index selection
+                time_index_type = st.radio(
+                    "Time/domain index type",
+                    ["Generate from column", "Provide manually"]
+                )
+                
+                if time_index_type == "Generate from column":
+                    time_col = st.selectbox(
+                        "Column containing time/domain information",
+                        st.session_state.df.columns
+                    )
+                    
+                    # Preview the unique values
+                    unique_values = st.session_state.df[time_col].unique()
+                    st.write(f"Unique values detected: {len(unique_values)}")
+                    st.write(unique_values[:10])
+                    
+                    # Generate time indices
+                    time_indices = st.session_state.df[time_col].astype('category').cat.codes.values
+                else:
+                    # Manual input - split points
+                    splits = st.number_input(
+                        "Number of equal-sized data segments", 
+                        min_value=2, 
+                        max_value=10,
+                        value=3
+                    )
+                    
+                    n_samples = len(st.session_state.df)
+                    time_indices = np.zeros(n_samples)
+                    
+                    # Divide data into equal segments
+                    for i in range(1, splits):
+                        segment_size = n_samples // splits
+                        time_indices[i*segment_size:] = i
+                
+                # Parameters for nonstationary algorithm
+                alpha = st.slider("Significance Level", 0.01, 0.10, 0.05, 0.01, key="ns_alpha")
+                
+                params = {
+                    "time_index": time_indices,
+                    "alpha": alpha
+                }
+                
+                # Button to run nonstationary algorithm
+                if st.button("Run Nonstationary Analysis"):
+                    with st.spinner("Running nonstationary causal discovery..."):
+                        try:
+                            # Run algorithm
+                            result = algorithm_executor.execute_algorithm("nonstationary", 
+                                                                    st.session_state.df, 
+                                                                    params)
+                            
+                            if result["status"] == "success":
+                                # Store result
+                                ns_id = "nonstationary"
+                                st.session_state.causal_graphs[ns_id] = result
+                                st.session_state.current_graph = ns_id
+                                
+                                # Display result
+                                st.success("Successfully ran nonstationary causal discovery")
+                                
+                                # Show variable changes
+                                st.subheader("Detected Distribution Changes")
+                                
+                                # Get variable change info
+                                var_changes = result["causal_learn_result"].get("variable_changes", {})
+                                
+                                if var_changes:
+                                    # Create table of variable changes
+                                    var_change_data = []
+                                    for var_idx, info in var_changes.items():
+                                        if isinstance(var_idx, int) and var_idx < len(st.session_state.df.columns):
+                                            var_name = st.session_state.df.columns[var_idx]
+                                            var_change_data.append({
+                                                "Variable": var_name,
+                                                "Changing": info.get("changing", False),
+                                                "p-value": info.get("p_value", 1.0),
+                                                "Strength": info.get("strength", 0.0)
+                                            })
+                                    
+                                    if var_change_data:
+                                        import pandas as pd
+                                        var_change_df = pd.DataFrame(var_change_data)
+                                        st.dataframe(var_change_df)
+                                
+                                # Visualize causal graph
+                                node_labels = {i: name for i, name in enumerate(st.session_state.df.columns)}
+                                graph_viz = CausalGraphVisualizer()
+                                fig = graph_viz.visualize_graph(
+                                    graph=result["graph"],
+                                    node_labels=node_labels,
+                                    show_confidence=True
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            else:
+                                st.error(f"Error running nonstationary analysis: {result.get('error', 'Unknown error')}")
+                        
+                        except Exception as e:
+                            st.error(f"Error running nonstationary analysis: {str(e)}")
     
     with tab3:
         st.subheader("Ensemble Method")

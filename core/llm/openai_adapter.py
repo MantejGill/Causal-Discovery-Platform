@@ -220,13 +220,14 @@ Format your response as:
     
     def generate_causal_explanation(
         self,
-        from_var: str,
-        to_var: str,
-        graph_data: Dict[str, Any],
-        variable_descriptions: Dict[str, str],
+        from_var: Optional[str] = None,
+        to_var: Optional[str] = None,
+        graph_data: Optional[Dict[str, Any]] = None,
+        variable_descriptions: Optional[Dict[str, str]] = None,
         data_summary: Optional[Dict[str, Any]] = None,
         domain_context: Optional[str] = None,
         detail_level: str = "medium",
+        relationship: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Generate an explanation for a specific causal relationship.
@@ -240,10 +241,16 @@ Format your response as:
             data_summary: Optional summary statistics of the data
             domain_context: Optional domain context
             detail_level: Detail level for the explanation (simple, medium, detailed)
+            relationship: Optional relationship data (for backward compatibility)
             
         Returns:
             Dictionary containing the explanation
         """
+        # Handle relationship parameter for backward compatibility
+        if relationship is not None:
+            from_var = relationship.get('from', from_var)
+            to_var = relationship.get('to', to_var)
+        
         return self.explain_causal_relationship(
             from_var=from_var,
             to_var=to_var,

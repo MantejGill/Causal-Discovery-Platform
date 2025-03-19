@@ -767,3 +767,289 @@ class AlgorithmExecutor:
                     G.add_edge(j, i, bidirected=True)
         
         return G
+    
+    # Add to core/algorithms/executor.py
+
+def _execute_anm(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute Additive Noise Model (ANM) algorithm"""
+    from core.algorithms.nonlinear_models import AdditiveNoiseModel
+    
+    # Check if data has exactly 2 variables (pairwise causal discovery)
+    if data.shape[1] != 2:
+        raise ValueError("ANM is designed for pairwise causal discovery (2 variables only)")
+    
+    # Execute ANM
+    anm = AdditiveNoiseModel(regression_method=params.get("regression_method", "gp"))
+    direction_result = anm.test_direction(data[:, 0], data[:, 1])
+    
+    # Create network graph based on direction result
+    G = nx.DiGraph()
+    G.add_nodes_from([0, 1])
+    
+    # Determine direction based on result
+    if direction_result["direction"] == "0->1":
+        # X -> Y (0 -> 1)
+        G.add_edge(0, 1, weight=direction_result["confidence"])
+        direction = "0->1"
+    else:
+        # Y -> X (1 -> 0)
+        G.add_edge(1, 0, weight=direction_result["confidence"])
+        direction = "1->0"
+    
+    return {
+        "status": "success",
+        "algorithm_id": "anm",
+        "graph": G,
+        "causal_learn_result": {
+            "forward_score": direction_result.get("forward_score"),
+            "backward_score": direction_result.get("backward_score"),
+            "direction": direction,
+            "confidence": direction_result.get("confidence")
+        },
+        "params": params
+    }
+
+def _execute_pnl(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute Post-Nonlinear (PNL) causal model algorithm"""
+    from core.algorithms.nonlinear_models import PostNonlinearModel
+    
+    # Check if data has exactly 2 variables (pairwise causal discovery)
+    if data.shape[1] != 2:
+        raise ValueError("PNL is designed for pairwise causal discovery (2 variables only)")
+    
+    # Execute PNL
+    pnl = PostNonlinearModel(
+        f1_degree=params.get("f1_degree", 3),
+        f2_degree=params.get("f2_degree", 3),
+        independence_test=params.get("independence_test", "hsic")
+    )
+    direction_result = pnl.test_direction(data[:, 0], data[:, 1])
+    
+    # Create network graph based on direction result
+    G = nx.DiGraph()
+    G.add_nodes_from([0, 1])
+    
+    # Determine direction based on result
+    if direction_result["direction"] == "0->1":
+        # X -> Y (0 -> 1)
+        G.add_edge(0, 1, weight=direction_result["confidence"])
+        direction = "0->1"
+    else:
+        # Y -> X (1 -> 0)
+        G.add_edge(1, 0, weight=direction_result["confidence"])
+        direction = "1->0"
+    
+    return {
+        "status": "success",
+        "algorithm_id": "pnl",
+        "graph": G,
+        "causal_learn_result": {
+            "direction": direction,
+            "confidence": direction_result.get("confidence")
+        },
+        "params": params
+    }
+
+def _execute_kernel_ci(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute kernel-based conditional independence tests"""
+    from core.algorithms.kernel_methods import KernelCausalDiscovery
+    
+    # Parameters for kernel methods
+    kernel_type = params.get("kernel_type", "rbf")
+    kernel_params = params.get("kernel_params", {})
+    alpha = params.get("alpha", 0.05)
+    
+    # Initialize kernel causal discovery
+    kcd = KernelCausalDiscovery(kernel_type=kernel_type, kernel_params=kernel_params)
+    
+    # Select variables to test (if specified)
+    x_idx = params.get("x_idx", 0)
+    y_idx = params.get("y_idx", 1)
+    z_idx = params.get("z_idx", None)
+    
+    # Extract variables
+    x = data[:, x_idx]
+    y = data[:, y_idx]
+    z = data[:, z_idx] if z_idx is not None else None
+    
+    # Perform independence test
+    independent, p_value = kcd.kernel_pc_independence_test(x, y, z, alpha)
+    
+    # Create simple graph representation of result
+    G = nx.DiGraph()
+    G.add_nodes_from([x_idx, y_idx])
+    
+    # Only add edge if not independent
+    if not independent:
+        G.add_edge(x_idx, y_idx, weight=1.0 - p_value, p_value=p_value)
+    
+    return {
+        "status": "success",
+        "algorithm_id": "kernel_ci",
+        "graph": G,
+        "causal_learn_result": {
+            "independent": independent,
+            "p_value": p_value
+        },
+        "params": params
+    }
+
+def _execute_nonstationary(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute causal discovery for nonstationary/heterogeneous data"""
+    from core.algorithms.nonstationarity import NonStationaryCausalDiscovery
+    
+    # Get required parameters
+    time_index = params.get("time_index")
+    
+    if time_index is None:
+        raise ValueError("time_index parameter is required for nonstationary causal discovery")
+    
+    # Convert to numpy array if needed
+    if isinstance(time_index, list):
+        time_index = np.array(time_index)
+    
+    # Initialize nonstationary causal discovery
+    nscd = NonStationaryCausalDiscovery()
+    
+    # Perform causal discovery
+    G, additional_info = nscd.causal_discovery_nonstationary(
+        data, 
+        time_index, 
+        alpha=params.get("alpha", 0.05)
+    )
+    
+    return {
+        "status": "success",
+        "algorithm_id": "nonstationary",
+        "graph": G,
+        "causal_learn_result": additional_info,
+        "params": params
+    }
+
+def _execute_timeseries(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute time series causal discovery"""
+    from core.algorithms.timeseries import TimeSeriesCausalDiscovery
+    
+    # Get parameters
+    method = params.get("method", "grangervar")
+    lags = params.get("lags", None)
+    var_names = params.get("var_names", None)
+    
+    # Initialize time series causal discovery
+    tscd = TimeSeriesCausalDiscovery(method=method)
+    
+    # Perform causal discovery
+    G, additional_info = tscd.discover_causal_graph(
+        data,
+        lags=lags,
+        var_names=var_names,
+        alpha=params.get("alpha", 0.05)
+    )
+    
+    # If requested, also compute instantaneous effects
+    if params.get("detect_instantaneous", False):
+        G_inst = tscd.detect_instantaneous_effects(data)
+        
+        # Combine graphs if requested
+        if params.get("combine_graphs", False):
+            G = tscd.combine_temporal_instantaneous_graph(G, G_inst)
+            additional_info["instantaneous_included"] = True
+        else:
+            additional_info["instantaneous_graph"] = G_inst
+    
+    return {
+        "status": "success",
+        "algorithm_id": f"timeseries_{method}",
+        "graph": G,
+        "causal_learn_result": additional_info,
+        "params": params
+    }
+
+def _execute_var_lingam(self, data: np.ndarray, params: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute VAR-LiNGAM for time series data"""
+    from core.algorithms.timeseries import VARLiNGAM
+    
+    # Parameters
+    lags = params.get("lags", 1)
+    var_names = params.get("var_names", None)
+    
+    # Initialize and fit VAR-LiNGAM
+    model = VARLiNGAM(lags=lags)
+    result = model.fit(data)
+    
+    if result["success"]:
+        # Convert to NetworkX graph
+        G = model.to_networkx_graph(var_names=var_names)
+        
+        return {
+            "status": "success",
+            "algorithm_id": "var_lingam",
+            "graph": G,
+            "causal_learn_result": result,
+            "params": params
+        }
+    else:
+        return {
+            "status": "error",
+            "algorithm_id": "var_lingam",
+            "error": result.get("error", "Unknown error fitting VAR-LiNGAM"),
+            "params": params
+        }
+    
+    # Modify the execute_algorithm method in core/algorithms/executor.py
+
+def execute_algorithm(self, algorithm_id: str, data: pd.DataFrame, 
+                     params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Execute a specific causal discovery algorithm
+    
+    Args:
+        algorithm_id: Identifier for the algorithm to run
+        data: DataFrame containing the data
+        params: Optional parameters for the algorithm
+        
+    Returns:
+        Dictionary containing execution results including causal graph
+    """
+    # Convert to numpy array for causal-learn
+    data_np = data.values
+    
+    # Default parameters if none provided
+    if params is None:
+        params = {}
+    
+    # Execute the selected algorithm
+    try:
+        # Existing algorithm checks...
+        if algorithm_id.startswith("pc_"):
+            return self._execute_pc(algorithm_id, data_np, params)
+        elif algorithm_id.startswith("fci_"):
+            return self._execute_fci(algorithm_id, data_np, params)
+        elif algorithm_id == "cdnod":
+            return self._execute_cdnod(data_np, params)
+        elif algorithm_id.startswith("ges_"):
+            return self._execute_ges(algorithm_id, data_np, params)
+        # ... other existing algorithms ...
+        
+        # New algorithms
+        elif algorithm_id == "anm":
+            return self._execute_anm(data_np, params)
+        elif algorithm_id == "pnl":
+            return self._execute_pnl(data_np, params)
+        elif algorithm_id == "kernel_ci":
+            return self._execute_kernel_ci(data_np, params)
+        elif algorithm_id == "nonstationary":
+            return self._execute_nonstationary(data_np, params)
+        elif algorithm_id.startswith("timeseries_"):
+            return self._execute_timeseries(data_np, params)
+        elif algorithm_id == "var_lingam":
+            return self._execute_var_lingam(data_np, params)
+        else:
+            raise ValueError(f"Unknown algorithm: {algorithm_id}")
+    except Exception as e:
+        logger.error(f"Error executing algorithm {algorithm_id}: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "algorithm_id": algorithm_id
+        }

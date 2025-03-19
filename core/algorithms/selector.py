@@ -56,7 +56,17 @@ class AlgorithmSelector:
             
             # Granger causality
             "granger_test": "Linear Granger causality test (for time series, 2 variables)",
-            "granger_lasso": "Linear Granger causality with Lasso (for multivariate time series)"
+            "granger_lasso": "Linear Granger causality with Lasso (for multivariate time series)",
+
+            # Add new algorithms
+            "anm": "Additive Noise Model (for nonlinear pairwise causal discovery)",
+            "pnl": "Post-Nonlinear causal model (for complex nonlinear relationships)",
+            "kernel_ci": "Kernel-based conditional independence tests",
+            "nonstationary": "Causal discovery exploiting non-stationarity/heterogeneity",
+            "timeseries_grangervar": "Time series causal discovery with VAR and Granger causality",
+            "timeseries_granger_pairwise": "Pairwise Granger causality for time series",
+            "var_lingam": "VAR-LiNGAM for time series with contemporaneous effects"
+
         }
         
         # Map of method groups
@@ -66,7 +76,10 @@ class AlgorithmSelector:
             "score_based": ["ges_bic", "ges_bdeu", "ges_cv", "grasp", "boss", "exact_dp", "exact_astar"],
             "fcm_based": ["lingam_ica", "lingam_direct", "lingam_var", "lingam_rcd", "lingam_camuv", "anm", "pnl"],
             "hidden_causal": ["gin"],
-            "granger": ["granger_test", "granger_lasso"]
+            "granger": ["granger_test", "granger_lasso"],
+            "nonlinear": ["anm", "pnl", "kernel_ci"],
+            "timeseries": ["timeseries_grangervar", "timeseries_granger_pairwise", "var_lingam", "granger_test", "granger_lasso"],
+            "nonstationary": ["nonstationary", "cdnod"]
         }
     
     def get_all_algorithms(self) -> Dict[str, str]:
@@ -397,5 +410,32 @@ class AlgorithmSelector:
                     suggestions["secondary"].remove(method)
                     if method not in suggestions["not_recommended"]:
                         suggestions["not_recommended"].append(method)
+
+        # Check for nonlinear relationships
+        if profile["judgments"].get("suitable_for_nonlinear_methods", False):
+            suggestions["secondary"].extend(["anm", "pnl", "kernel_ci"])
+            
+            # Prioritize nonlinear methods for suitable data
+            if not is_gaussian:
+                suggestions["primary"].extend(["pc_kci", "fci_kci"])
+        
+        # Check for time series data
+        if profile["judgments"].get("may_be_time_series", False):
+            suggestions["primary"].extend(["timeseries_grangervar", "var_lingam"])
+            suggestions["secondary"].append("timeseries_granger_pairwise")
+            
+            # Not recommended for time series
+            for alg in ["pc_fisherz", "ges_bic", "exact_astar"]:
+                if alg in suggestions["primary"]:
+                    suggestions["primary"].remove(alg)
+                if alg in suggestions["secondary"]:
+                    suggestions["secondary"].remove(alg)
+                if alg not in suggestions["not_recommended"]:
+                    suggestions["not_recommended"].append(alg)
+        
+        # Check for nonstationarity
+        if profile["judgments"].get("may_have_distribution_shifts", False):
+            suggestions["primary"].append("nonstationary")
+            suggestions["secondary"].append("cdnod")
         
         return suggestions

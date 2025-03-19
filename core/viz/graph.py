@@ -704,3 +704,140 @@ class CausalGraphVisualizer:
                 ]
             )
             return fig
+        
+
+    def visualize_temporal_graph(self, 
+                           graph: nx.DiGraph, 
+                           max_lags: int = 3,
+                           node_labels: Optional[Dict[int, str]] = None) -> go.Figure:
+        """
+        Visualize a temporal causal graph with time lags
+        
+        Args:
+            graph: NetworkX DiGraph with time lag information
+            max_lags: Maximum number of time lags to display
+            node_labels: Optional node labels
+        
+        Returns:
+            Plotly figure
+        """
+        try:
+            # Create a figure with subplots for each time lag
+            fig = make_subplots(rows=1, cols=max_lags+1, 
+                            subplot_titles=[f"Contemporaneous" if i==0 else f"Lag {i}" for i in range(max_lags+1)])
+            
+            # Extract all nodes and edges
+            all_nodes = list(graph.nodes())
+            all_edges = list(graph.edges(data=True))
+            
+            # Organize edges by lag
+            lag_edges = {}
+            for lag in range(max_lags+1):
+                lag_edges[lag] = []
+            
+            for u, v, data in all_edges:
+                lag = data.get('time_lag', 0)
+                if isinstance(lag, int) and lag <= max_lags:
+                    lag_edges[lag].append((u, v, data))
+            
+            # For each time lag, create a graph visualization
+            for lag in range(max_lags+1):
+                # Create a subgraph with edges for this lag
+                subgraph = nx.DiGraph()
+                subgraph.add_nodes_from(all_nodes)
+                subgraph.add_edges_from([(u, v, d) for u, v, d in lag_edges[lag]])
+                
+                # Use spring layout for node positions (consistent across subgraphs)
+                if lag == 0:
+                    pos = nx.spring_layout(subgraph, seed=42)
+                
+                # Add nodes
+                node_x = []
+                node_y = []
+                node_text = []
+                
+                for node in subgraph.nodes():
+                    x, y = pos[node]
+                    node_x.append(x)
+                    node_y.append(y)
+                    
+                    # Node label
+                    if node_labels and node in node_labels:
+                        label = node_labels[node]
+                        node_text.append(f"Node ID: {node}<br>Label: {label}")
+                    else:
+                        node_text.append(f"Node ID: {node}")
+                
+                node_trace = go.Scatter(
+                    x=node_x, y=node_y,
+                    mode='markers+text',
+                    text=[str(i) for i in subgraph.nodes()],
+                    textposition="top center",
+                    hoverinfo='text',
+                    hovertext=node_text,
+                    marker=dict(
+                        color='rgba(0, 100, 255, 0.8)',
+                        size=10,
+                        line=dict(width=1, color='rgba(0, 0, 0, 0.8)')
+                    ),
+                    name='Nodes'
+                )
+                
+                # Add edges
+                for u, v, data in subgraph.edges(data=True):
+                    x0, y0 = pos[u]
+                    x1, y1 = pos[v]
+                    
+                    # Edge text
+                    text = f"{u} → {v}"
+                    if 'weight' in data:
+                        text += f"<br>Weight: {data['weight']:.3f}"
+                    if 'confidence' in data:
+                        text += f"<br>Confidence: {data['confidence']:.3f}"
+                    
+                    edge_trace = go.Scatter(
+                        x=[x0, x1, None],
+                        y=[y0, y1, None],
+                        line=dict(width=1.5, color='rgba(0, 0, 200, 0.5)'),
+                        hoverinfo='text',
+                        text=text,
+                        mode='lines',
+                        showlegend=False
+                    )
+                    
+                    fig.add_trace(edge_trace, row=1, col=lag+1)
+                
+                # Add node trace
+                fig.add_trace(node_trace, row=1, col=lag+1)
+            
+            # Update layout
+            fig.update_layout(
+                title="Temporal Causal Graph Visualization",
+                showlegend=False,
+                height=500,
+                width=300 * (max_lags + 1)
+            )
+            
+            # Remove axis labels
+            fig.update_xaxes(showticklabels=False)
+            fig.update_yaxes(showticklabels=False)
+            
+            return fig
+        
+        except Exception as e:
+            logger.error(f"Error visualizing temporal graph: {str(e)}")
+            
+            # Return empty figure on error
+            fig = go.Figure()
+            fig.update_layout(
+                title=f"Error creating temporal graph visualization: {str(e)}",
+                annotations=[
+                    dict(
+                        text=f"Error: {str(e)}",
+                        xref="paper", yref="paper",
+                        x=0.5, y=0.5,
+                        showarrow=False
+                    )
+                ]
+            )
+            return fig
