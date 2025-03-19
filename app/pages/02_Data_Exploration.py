@@ -9,6 +9,47 @@ from core.viz.distribution import DataVisualizer
 from core.algorithms.selector import AlgorithmSelector
 from core.llm.algorithm_recommender import LLMAlgorithmRecommender, display_llm_recommendations
 
+# Add the explanation helper function (paste the function defined earlier)
+def add_explanation_button(st, viz_type, data_description, viz_description):
+    """
+    Add an explanation button for a visualization
+    
+    Args:
+        st: Streamlit instance
+        viz_type: Type of visualization
+        data_description: Description of the data
+        viz_description: Description of the visualization
+    """
+    if st.button(f"🧠 Explain this {viz_type}", key=f"explain_{viz_type}_{id(viz_description)}"):
+        with st.spinner("Generating AI explanation..."):
+            if st.session_state.llm_adapter:
+                try:
+                    # Get user preferences for explanation
+                    detail_level = st.session_state.get("explanation_detail_level", "intermediate")
+                    focus = st.session_state.get("explanation_focus", "statistical")
+                    
+                    # Use OpenRouter with appropriate model if available
+                    if hasattr(st.session_state.llm_adapter, "explain_visualization"):
+                        explanation = st.session_state.llm_adapter.explain_visualization(
+                            viz_type=viz_type,
+                            data_description=data_description,
+                            viz_description=viz_description,
+                            detail_level=detail_level,
+                            focus=focus
+                        )
+                        
+                        # Create an attractive container for the explanation
+                        with st.expander("📊 **Visualization Explained**", expanded=True):
+                            st.markdown(explanation["explanation"])
+                            st.caption(f"Explanation generated using {explanation.get('model_used', 'LLM')} • {detail_level.capitalize()} level • {focus.capitalize()} focus")
+                    else:
+                        st.warning("The current LLM adapter doesn't support visualization explanations. Please configure an OpenRouter adapter in Settings.")
+                except Exception as e:
+                    st.error(f"Error generating explanation: {str(e)}")
+            else:
+                st.warning("LLM adapter not available. Please configure OpenAI or OpenRouter API key in Settings.")
+
+
 # Ensure session state is initialized
 for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor', 
             'causal_graphs', 'current_graph', 'refined_graph', 'llm_adapter', 'theme',
@@ -24,6 +65,39 @@ for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor',
             st.session_state[var] = None
 
 st.title("Data Exploration")
+
+# Add explanation settings
+with st.expander("🧠 AI Explanation Settings", expanded=False):
+    st.markdown("Configure how AI-powered visualization explanations are generated:")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        explanation_detail_level = st.selectbox(
+            "Detail Level",
+            options=["beginner", "intermediate", "advanced"],
+            index=1,  # Default to intermediate
+            help="Select the level of detail for visualization explanations"
+        )
+        st.session_state["explanation_detail_level"] = explanation_detail_level
+    
+    with col2:
+        explanation_focus = st.selectbox(
+            "Focus Area",
+            options=["statistical", "causal", "domain"],
+            index=0,  # Default to statistical
+            help="Select the focus area for visualization explanations"
+        )
+        st.session_state["explanation_focus"] = explanation_focus
+    
+    st.markdown("""
+    - **Beginner**: Simple, non-technical explanations
+    - **Intermediate**: Moderate technical depth with explanations of concepts
+    - **Advanced**: In-depth technical analysis
+    
+    - **Statistical**: Focus on statistical properties and distributions
+    - **Causal**: Focus on potential causal relationships
+    - **Domain**: Focus on domain-specific insights and implications
+    """)
 
 if not st.session_state.data_loaded:
     st.warning("Please load a dataset first in the 'Data Loading' page.")
@@ -172,6 +246,24 @@ else:
                         kde=True
                     )
                     st.plotly_chart(fig, use_container_width=True)
+                    # Add explanation button
+                    data_description = {
+                        "column": dist_col,
+                        "data_type": str(st.session_state.df[dist_col].dtype),
+                        "summary_stats": {
+                            "mean": float(st.session_state.df[dist_col].mean()),
+                            "median": float(st.session_state.df[dist_col].median()),
+                            "std": float(st.session_state.df[dist_col].std()),
+                            "min": float(st.session_state.df[dist_col].min()),
+                            "max": float(st.session_state.df[dist_col].max())
+                        }
+                    }
+                    viz_description = {
+                        "plot_type": dist_type,
+                        "kde": True
+                    }
+                    add_explanation_button(st, f"{dist_type} plot", data_description, viz_description)
+
                 except Exception as e:
                     st.error(f"Error creating plot: {str(e)}")
     
@@ -187,6 +279,19 @@ else:
             try:
                 fig = data_viz.create_correlation_matrix(method=corr_method)
                 st.plotly_chart(fig, use_container_width=True)
+                # Add explanation button
+                numeric_cols = st.session_state.df.select_dtypes(include=[np.number]).columns.tolist()
+                corr_matrix = st.session_state.df[numeric_cols].corr(method=corr_method).to_dict()
+                data_description = {
+                    "columns": numeric_cols,
+                    "data_types": {col: str(st.session_state.df[col].dtype) for col in numeric_cols}
+                }
+                viz_description = {
+                    "method": corr_method,
+                    "correlation_values": corr_matrix
+                }
+                add_explanation_button(st, "correlation matrix", data_description, viz_description)
+
             except Exception as e:
                 st.error(f"Error creating correlation matrix: {str(e)}")
     
@@ -216,6 +321,27 @@ else:
                         add_regression=add_regression
                     )
                     st.plotly_chart(fig, use_container_width=True)
+                    # Add explanation button
+                    data_description = {
+                        "x_column": x_col,
+                        "y_column": y_col,
+                        "color_column": color_col,
+                        "x_summary": {
+                            "mean": float(st.session_state.df[x_col].mean()),
+                            "std": float(st.session_state.df[x_col].std())
+                        },
+                        "y_summary": {
+                            "mean": float(st.session_state.df[y_col].mean()),
+                            "std": float(st.session_state.df[y_col].std())
+                        },
+                        "correlation": float(st.session_state.df[[x_col, y_col]].corr().iloc[0, 1])
+                    }
+                    viz_description = {
+                        "regression_line": add_regression,
+                        "color_encoding": color_col is not None
+                    }
+                    add_explanation_button(st, "scatter plot", data_description, viz_description)
+
                 except Exception as e:
                     st.error(f"Error creating scatter plot: {str(e)}")
     
@@ -240,6 +366,16 @@ else:
                         max_cols=5
                     )
                     st.plotly_chart(fig, use_container_width=True)
+                    # Add explanation button
+                    data_description = {
+                        "columns": pair_cols,
+                        "data_types": {col: str(st.session_state.df[col].dtype) for col in pair_cols}
+                    }
+                    viz_description = {
+                        "color_by": pair_color,
+                        "plot_type": "pairplot"
+                    }
+                    add_explanation_button(st, "pair plot", data_description, viz_description)
                 except Exception as e:
                     st.error(f"Error creating pair plot: {str(e)}")
     

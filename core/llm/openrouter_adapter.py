@@ -90,14 +90,15 @@ class OpenRouterAdapter(LLMAdapter):
             return [self.model]  # Return default model as fallback
     
     def complete(
-        self, 
-        prompt: str, 
-        system_prompt: Optional[str] = None,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        top_p: Optional[float] = None,
-        stop: Optional[Union[str, List[str]]] = None,
-    ) -> Dict[str, Any]:
+    self, 
+    prompt: str, 
+    system_prompt: Optional[str] = None,
+    temperature: Optional[float] = None,
+    max_tokens: Optional[int] = None,
+    top_p: Optional[float] = None,
+    stop: Optional[Union[str, List[str]]] = None,
+    model: Optional[str] = None,
+) -> Dict[str, Any]:
         """
         Complete a prompt using the OpenRouter API.
         
@@ -108,6 +109,7 @@ class OpenRouterAdapter(LLMAdapter):
             max_tokens: Maximum tokens to generate (overrides instance setting if provided)
             top_p: Nucleus sampling parameter (overrides instance setting if provided)
             stop: Optional stop sequences
+            model: Optional model override (use a different model for this request)
             
         Returns:
             Dictionary containing the completion result
@@ -124,7 +126,7 @@ class OpenRouterAdapter(LLMAdapter):
             
             # Set up parameters
             params = {
-                "model": self.model,
+                "model": model if model is not None else self.model,
                 "messages": messages,
                 "temperature": temperature if temperature is not None else self.temperature,
                 "top_p": top_p if top_p is not None else self.top_p,
@@ -159,7 +161,7 @@ class OpenRouterAdapter(LLMAdapter):
             
             return {
                 "completion": completion,
-                "model": self.model,
+                "model": params["model"],
                 "usage": {
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens,
@@ -171,9 +173,102 @@ class OpenRouterAdapter(LLMAdapter):
             logger.error(f"Error in OpenRouter completion: {str(e)}")
             return {
                 "completion": f"Error: {str(e)}",
-                "model": self.model,
+                "model": model if model is not None else self.model,
                 "error": str(e)
             }
+
+    def explain_visualization(
+    self,
+    viz_type: str,
+    data_description: Dict[str, Any],
+    viz_description: Dict[str, Any],
+    detail_level: str = "intermediate",
+    focus: str = "statistical",
+    model: Optional[str] = None
+) -> Dict[str, Any]:
+        """
+        Generate an explanation for a data visualization.
+        
+        Args:
+            viz_type: Type of visualization (e.g., "histogram", "scatter plot", "correlation matrix")
+            data_description: Description of the data being visualized
+            viz_description: Description of visualization parameters
+            detail_level: Level of detail for explanation ("beginner", "intermediate", "advanced")
+            focus: Focus area for explanation ("statistical", "causal", "domain")
+            model: Optional override of the default model
+            
+        Returns:
+            Dictionary containing the explanation
+        """
+        # Create a system prompt focused on data visualization explanation
+        system_prompt = """You are an expert in data visualization, statistics, and data science.
+        Your task is to explain visualizations clearly and insightfully at the appropriate level of detail.
+        Focus on helping the user understand what the visualization shows, any patterns or insights revealed,
+        and how this might inform their analysis or decision-making."""
+        
+        # Create the prompt based on visualization type
+        prompt = f"""# Visualization Explanation Request
+
+    ## Visualization Type
+    {viz_type}
+
+    ## Data Description
+    ```json
+    {json.dumps(data_description, indent=2)}
+    ```
+
+    ## Visualization Parameters
+    ```json
+    {json.dumps(viz_description, indent=2)}
+    ```
+
+    ## Explanation Parameters
+    - Detail Level: {detail_level} (beginner, intermediate, or advanced)
+    - Focus: {focus} (statistical, causal, or domain)
+
+    ## Instructions
+
+    Please explain this {viz_type} visualization with the following considerations:
+
+    1. Use a {detail_level} level of detail
+    - Beginner: Simple, non-technical explanations for those new to data analysis
+    - Intermediate: Moderate technical depth with explanations of concepts
+    - Advanced: In-depth technical analysis suitable for data scientists
+
+    2. Focus on {focus} aspects:
+    - Statistical: Focus on distributions, correlations, statistical properties
+    - Causal: Discuss potential causal relationships and implications
+    - Domain: Emphasize practical implications and domain-specific insights
+
+    3. Include the following in your explanation:
+    - What this visualization shows and how to interpret it
+    - Key patterns or insights visible in the visualization
+    - Potential limitations or things to be cautious about
+    - Suggestions for further analysis based on what's shown
+
+    4. Format your explanation in clear markdown with appropriate headers and bullet points.
+    """
+
+        # If model is specified, use it instead of the default model
+        use_model = model if model else self.model
+        
+        # Get the completion
+        result = self.complete(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.4,
+            max_tokens=1000,
+            model=use_model
+        )
+        
+        # Return the explanation
+        return {
+            "explanation": result["completion"],
+            "viz_type": viz_type,
+            "detail_level": detail_level,
+            "focus": focus,
+            "model_used": use_model
+        }
     
     def causal_refinement(
         self,
@@ -249,49 +344,6 @@ Format your response as:
             "original_graph": graph_data,
             "reasoning": result["completion"],
         }
-    
-    def generate_causal_explanation(
-        self,
-        from_var: Optional[str] = None,
-        to_var: Optional[str] = None,
-        graph_data: Optional[Dict[str, Any]] = None,
-        variable_descriptions: Optional[Dict[str, str]] = None,
-        data_summary: Optional[Dict[str, Any]] = None,
-        domain_context: Optional[str] = None,
-        detail_level: str = "medium",
-        relationship: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """
-        Generate an explanation for a specific causal relationship.
-        This is an alias for explain_causal_relationship for compatibility.
-        
-        Args:
-            from_var: Source variable in the relationship
-            to_var: Target variable in the relationship
-            graph_data: The causal graph data
-            variable_descriptions: Descriptions of the variables
-            data_summary: Optional summary statistics of the data
-            domain_context: Optional domain context
-            detail_level: Detail level for the explanation (simple, medium, detailed)
-            relationship: Optional relationship data (for backward compatibility)
-            
-        Returns:
-            Dictionary containing the explanation
-        """
-        # Handle relationship parameter for backward compatibility
-        if relationship is not None:
-            from_var = relationship.get('from', from_var)
-            to_var = relationship.get('to', to_var)
-        
-        return self.explain_causal_relationship(
-            from_var=from_var,
-            to_var=to_var,
-            graph_data=graph_data,
-            variable_descriptions=variable_descriptions,
-            data_summary=data_summary,
-            domain_context=domain_context,
-            detail_level=detail_level
-        )
     
     def explain_causal_relationship(
         self,
@@ -385,6 +437,49 @@ In your explanation, please address:
             "detail_level": detail_level
         }
     
+    def generate_causal_explanation(
+        self,
+        from_var: Optional[str] = None,
+        to_var: Optional[str] = None,
+        graph_data: Optional[Dict[str, Any]] = None,
+        variable_descriptions: Optional[Dict[str, str]] = None,
+        data_summary: Optional[Dict[str, Any]] = None,
+        domain_context: Optional[str] = None,
+        detail_level: str = "medium",
+        relationship: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Generate an explanation for a specific causal relationship.
+        This is an alias for explain_causal_relationship for compatibility.
+        
+        Args:
+            from_var: Source variable in the relationship
+            to_var: Target variable in the relationship
+            graph_data: The causal graph data
+            variable_descriptions: Descriptions of the variables
+            data_summary: Optional summary statistics of the data
+            domain_context: Optional domain context
+            detail_level: Detail level for the explanation (simple, medium, detailed)
+            relationship: Optional relationship data (for backward compatibility)
+            
+        Returns:
+            Dictionary containing the explanation
+        """
+        # Handle relationship parameter for backward compatibility
+        if relationship is not None:
+            from_var = relationship.get('from', from_var)
+            to_var = relationship.get('to', to_var)
+        
+        return self.explain_causal_relationship(
+            from_var=from_var,
+            to_var=to_var,
+            graph_data=graph_data,
+            variable_descriptions=variable_descriptions,
+            data_summary=data_summary,
+            domain_context=domain_context,
+            detail_level=detail_level
+        )
+    
     def _format_graph_for_prompt(self, graph_data: Dict[str, Any]) -> str:
         """
         Format graph data into a readable text representation for the prompt.
@@ -436,3 +531,97 @@ In your explanation, please address:
             formatted_text += edge_info + "\n"
         
         return formatted_text
+    
+
+    def explain_visualization(
+    self,
+    viz_type: str,
+    data_description: Dict[str, Any],
+    viz_description: Dict[str, Any],
+    detail_level: str = "intermediate",
+    focus: str = "statistical",
+    model: Optional[str] = None
+) -> Dict[str, Any]:
+        """
+        Generate an explanation for a data visualization.
+        
+        Args:
+            viz_type: Type of visualization (e.g., "histogram", "scatter plot", "correlation matrix")
+            data_description: Description of the data being visualized
+            viz_description: Description of visualization parameters
+            detail_level: Level of detail for explanation ("beginner", "intermediate", "advanced")
+            focus: Focus area for explanation ("statistical", "causal", "domain")
+            model: Optional override of the default model
+            
+        Returns:
+            Dictionary containing the explanation
+        """
+        # Create a system prompt focused on data visualization explanation
+        system_prompt = """You are an expert in data visualization, statistics, and data science.
+        Your task is to explain visualizations clearly and insightfully at the appropriate level of detail.
+        Focus on helping the user understand what the visualization shows, any patterns or insights revealed,
+        and how this might inform their analysis or decision-making."""
+        
+        # Create the prompt based on visualization type
+        prompt = f"""# Visualization Explanation Request
+
+    ## Visualization Type
+    {viz_type}
+
+    ## Data Description
+    ```json
+    {json.dumps(data_description, indent=2)}
+    ```
+
+    ## Visualization Parameters
+    ```json
+    {json.dumps(viz_description, indent=2)}
+    ```
+
+    ## Explanation Parameters
+    - Detail Level: {detail_level} (beginner, intermediate, or advanced)
+    - Focus: {focus} (statistical, causal, or domain)
+
+    ## Instructions
+
+    Please explain this {viz_type} visualization with the following considerations:
+
+    1. Use a {detail_level} level of detail
+    - Beginner: Simple, non-technical explanations for those new to data analysis
+    - Intermediate: Moderate technical depth with explanations of concepts
+    - Advanced: In-depth technical analysis suitable for data scientists
+
+    2. Focus on {focus} aspects:
+    - Statistical: Focus on distributions, correlations, statistical properties
+    - Causal: Discuss potential causal relationships and implications
+    - Domain: Emphasize practical implications and domain-specific insights
+
+    3. Include the following in your explanation:
+    - What this visualization shows and how to interpret it
+    - Key patterns or insights visible in the visualization
+    - Potential limitations or things to be cautious about
+    - Suggestions for further analysis based on what's shown
+
+    4. Format your explanation in clear markdown with appropriate headers and bullet points.
+    """
+
+        # If model is specified, use it instead of the default model
+        use_model = model if model else self.model
+        
+        # Get the completion
+        result = self.complete(
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.4,
+            max_tokens=1000,
+            model=use_model
+        )
+        
+        # Return the explanation
+        return {
+            "explanation": result["completion"],
+            "viz_type": viz_type,
+            "detail_level": detail_level,
+            "focus": focus,
+            "model_used": use_model
+        }

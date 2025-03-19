@@ -178,23 +178,37 @@ with tab1:
         )
         st.session_state.api_keys["openrouter"] = openrouter_api_key
         
-        # OpenRouter Model selection
         openrouter_model = st.selectbox(
             "OpenRouter Model",
-            options=["deepseek/deepseek-r1:free", "deepseek/deepseek-r1-distill-llama-70b", "deepseek/deepseek-r1-distill-qwen-32b", "deepseek/deepseek-r1-distill-qwen-14b"],
-            index=["deepseek/deepseek-r1:free", "deepseek/deepseek-r1-distill-llama-70b", "deepseek/deepseek-r1-distill-qwen-32b", "deepseek/deepseek-r1-distill-qwen-14b"].index(
-                st.session_state.llm_settings["openrouter_model"]
-            ) if st.session_state.llm_settings["openrouter_model"] in ["deepseek/deepseek-r1:free", "deepseek/deepseek-r1-distill-llama-70b", "deepseek/deepseek-r1-distill-qwen-32b", "deepseek/deepseek-r1-distill-qwen-14b"] else 0,
+            options=[
+                # Gemini models
+                "google/gemini-1.5-flash-001:free",  # Gemini 2.0 Flash Thinking Experimental 01-21 (free)
+                # DeepSeek models
+                "deepseek/deepseek-r1:free", 
+                "deepseek/deepseek-r1-distill-llama-70b",
+                "deepseek/deepseek-r1-distill-qwen-32b", 
+                "deepseek/deepseek-r1-distill-qwen-14b",
+                # Claude models
+                "anthropic/claude-3-opus:20240229",
+                "anthropic/claude-3-sonnet:20240229",
+                "anthropic/claude-3-haiku:20240307"
+            ],
+            index=0,  # Default to Gemini Flash
             help="Select the OpenRouter model to use"
         )
         st.session_state.llm_settings["openrouter_model"] = openrouter_model
         
-        # Information about DeepSeek R1
+        # Add information about available models
         st.info("""
-        **DeepSeek R1** is a powerful open-source LLM with performance comparable to OpenAI's o1, but MIT licensed.
-        It has a large 163,840 token context window and is 671B parameters in size (with 37B active during inference).
-        
-        The free version is available through OpenRouter at no cost.
+        **Available Models:**
+        - **Gemini 1.5 Flash**: Google's fast Gemini model, excellent for visualization explanations (FREE)
+        - **DeepSeek R1**: Powerful open-source LLM with MIT license
+        - **DeepSeek R1 Distill**: Smaller, faster versions based on Llama 3 and Qwen
+        - **Claude 3 Opus**: Most capable Claude model for complex tasks
+        - **Claude 3 Sonnet**: Balanced Claude model for most use cases
+        - **Claude 3 Haiku**: Fastest Claude model for simpler tasks
+
+        Gemini 1.5 Flash is recommended for visualization explanations due to its strong understanding of data and visuals.
         """)
     
     # Common LLM settings
@@ -227,6 +241,41 @@ with tab1:
     # Initialize LLM button
     if st.button("Initialize LLM Adapter", key="initialize_llm"):
         st.session_state.llm_adapter = initialize_llm_adapter()
+    
+    st.subheader("Visualization Explanation Settings")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        explanation_detail_level = st.selectbox(
+            "Default Detail Level",
+            options=["beginner", "intermediate", "advanced"],
+            index=1,  # Default to intermediate
+            help="Select the default level of detail for visualization explanations"
+        )
+        st.session_state["explanation_detail_level"] = explanation_detail_level
+
+    with col2:
+        explanation_focus = st.selectbox(
+            "Default Focus Area",
+            options=["statistical", "causal", "domain"],
+            index=0,  # Default to statistical
+            help="Select the default focus area for visualization explanations"
+        )
+        st.session_state["explanation_focus"] = explanation_focus
+
+    st.markdown("""
+    ### About Visualization Explanations
+
+    The AI-powered visualization explanation feature uses LLMs to provide insights into your data visualizations, helping you:
+
+    - Understand what patterns are shown in charts and graphs
+    - Interpret statistical relationships and significance
+    - Identify potential causal connections
+    - Discover insights you might have missed
+
+    You can adjust the level of detail and focus area to suit your needs and expertise level.
+    """)
 
 with tab2:
     st.header("UI Settings")
