@@ -379,8 +379,14 @@ else:
                 except Exception as e:
                     st.error(f"Error creating scatter plot: {str(e)}")
     
+    # Modify the pair plot section in viz_tab4 to persist the plot state across reruns
+
     with viz_tab4:
         st.subheader("Pair Plots")
+        
+        # Initialize pair plot state in session state if not already present
+        if 'pair_plot_config' not in st.session_state:
+            st.session_state.pair_plot_config = None
         
         pair_cols = st.multiselect(
             "Select columns", 
@@ -391,27 +397,49 @@ else:
         pair_color = st.selectbox("Color by", ["None"] + st.session_state.df.columns.tolist(), key="pair_color")
         pair_color = None if pair_color == "None" else pair_color
         
+        # Create pair plot button
         if pair_cols and st.button("Create Pair Plot"):
+            # Store configuration in session state when button is clicked
+            st.session_state.pair_plot_config = {
+                "columns": pair_cols,
+                "color": pair_color
+            }
+        
+        # If we have a configuration, create and display the plot
+        if st.session_state.pair_plot_config:
             with st.spinner("Creating pair plot (this may take a while for large datasets)..."):
                 try:
+                    # Get configuration from session state
+                    config = st.session_state.pair_plot_config
+                    
+                    # Create the plot using the stored configuration
                     fig = data_viz.create_pairplot(
-                        columns=pair_cols,
-                        color=pair_color,
+                        columns=config["columns"],
+                        color=config["color"],
                         max_cols=5
                     )
                     st.plotly_chart(fig, use_container_width=True)
-                    # Add explanation button
+                    
+                    # Add explanation button (this will still work after reruns)
                     data_description = {
-                        "columns": pair_cols,
-                        "data_types": {col: str(st.session_state.df[col].dtype) for col in pair_cols}
+                        "columns": config["columns"],
+                        "data_types": {col: str(st.session_state.df[col].dtype) for col in config["columns"]}
                     }
                     viz_description = {
-                        "color_by": pair_color,
+                        "color_by": config["color"],
                         "plot_type": "pairplot"
                     }
                     add_explanation_button(st, "pair plot", data_description, viz_description)
+                    
+                    # Add a button to clear the plot if desired
+                    if st.button("Clear Plot"):
+                        st.session_state.pair_plot_config = None
+                        st.experimental_rerun()
+                    
                 except Exception as e:
                     st.error(f"Error creating pair plot: {str(e)}")
+                    # Clear the configuration on error to avoid repeating errors
+                    st.session_state.pair_plot_config = None
     
     # Data Profile Summary
     st.header("Data Profile Summary")
