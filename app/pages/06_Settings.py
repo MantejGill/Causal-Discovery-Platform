@@ -182,7 +182,7 @@ with tab1:
             "OpenRouter Model",
             options=[
                 # Gemini models
-                "google/gemini-1.5-flash-001:free",  # Gemini 2.0 Flash Thinking Experimental 01-21 (free)
+                "google/gemini-2.0-flash-thinking-exp:free",  # Gemini 2.0 Flash Thinking Experimental 01-21 (free)
                 # DeepSeek models
                 "deepseek/deepseek-r1:free", 
                 "deepseek/deepseek-r1-distill-llama-70b",
