@@ -9,7 +9,6 @@ from core.viz.distribution import DataVisualizer
 from core.algorithms.selector import AlgorithmSelector
 from core.llm.algorithm_recommender import LLMAlgorithmRecommender, display_llm_recommendations
 
-# Add the explanation helper function (paste the function defined earlier)
 def add_explanation_button(st, viz_type, data_description, viz_description):
     """
     Add an explanation button for a visualization
@@ -20,7 +19,10 @@ def add_explanation_button(st, viz_type, data_description, viz_description):
         data_description: Description of the data
         viz_description: Description of the visualization
     """
-    if st.button(f"🧠 Explain this {viz_type}", key=f"explain_{viz_type}_{id(viz_description)}"):
+    # Create a unique key for each button
+    button_key = f"explain_{viz_type}_{hash(str(viz_description))}"
+    
+    if st.button(f"🧠 Explain this {viz_type}", key=button_key):
         with st.spinner("Generating AI explanation..."):
             if st.session_state.llm_adapter:
                 try:
@@ -28,7 +30,7 @@ def add_explanation_button(st, viz_type, data_description, viz_description):
                     detail_level = st.session_state.get("explanation_detail_level", "intermediate")
                     focus = st.session_state.get("explanation_focus", "statistical")
                     
-                    # Use OpenRouter with appropriate model if available
+                    # Use OpenRouter adapter if available
                     if hasattr(st.session_state.llm_adapter, "explain_visualization"):
                         explanation = st.session_state.llm_adapter.explain_visualization(
                             viz_type=viz_type,
@@ -42,13 +44,45 @@ def add_explanation_button(st, viz_type, data_description, viz_description):
                         with st.expander("📊 **Visualization Explained**", expanded=True):
                             st.markdown(explanation["explanation"])
                             st.caption(f"Explanation generated using {explanation.get('model_used', 'LLM')} • {detail_level.capitalize()} level • {focus.capitalize()} focus")
+                    
+                    # Fallback to generic LLM adapter
                     else:
-                        st.warning("The current LLM adapter doesn't support visualization explanations. Please configure an OpenRouter adapter in Settings.")
+                        # Create a prompt for explanation
+                        prompt = f"""
+                        Please explain this {viz_type} visualization:
+                        
+                        Data Description:
+                        {data_description}
+                        
+                        Visualization Parameters:
+                        {viz_description}
+                        
+                        Detail Level: {detail_level}
+                        Focus: {focus}
+                        
+                        Provide a clear explanation of what this visualization shows, key patterns or insights,
+                        and how to interpret it.
+                        """
+                        
+                        system_prompt = """You are an expert in data visualization and statistics. 
+                        Explain visualizations clearly and insightfully at the appropriate level of detail."""
+                        
+                        # Call the LLM
+                        response = st.session_state.llm_adapter.complete(
+                            prompt=prompt,
+                            system_prompt=system_prompt,
+                            temperature=0.4
+                        )
+                        
+                        # Display the explanation
+                        with st.expander("📊 **Visualization Explained**", expanded=True):
+                            st.markdown(response["completion"])
+                            st.caption(f"Explanation generated using {st.session_state.llm_adapter.get_name()} • {detail_level.capitalize()} level • {focus.capitalize()} focus")
+                
                 except Exception as e:
                     st.error(f"Error generating explanation: {str(e)}")
             else:
                 st.warning("LLM adapter not available. Please configure OpenAI or OpenRouter API key in Settings.")
-
 
 # Ensure session state is initialized
 for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor', 
