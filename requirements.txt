@@ -7,6 +7,7 @@ plotly
 scipy
 scikit-learn
 dotenv
+streamlit-elements
 
 # UI components
 plotly-express
