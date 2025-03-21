@@ -1,0 +1,29 @@
+#add pycache
+__pycache__/
+/core/__pycache__/
+/core/data/__pycache__/
+/core/llm/__pycache__/
+/core/algorithms/__pycache__/
+/core/utils/__pycache__/
+/core/config/__pycache__/
+/core/logging/__pycache__/
+/core/tests/__pycache__/
+
+#add venv
+venv/
+
+#add .env
+.env
+
+#add .DS_Store
+.DS_Store
+
+#add .venv
+.venv
+
+#add .egg-info
+.egg-info/
+
+#add .pytest_cache
+.pytest_cache/
+
