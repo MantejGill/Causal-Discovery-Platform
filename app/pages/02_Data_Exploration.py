@@ -331,20 +331,19 @@ else:
     
     with viz_tab3:
         st.subheader("Scatter Plots")
-        
         numeric_cols = st.session_state.df.select_dtypes(include=[np.number]).columns.tolist()
-        
         col1, col2 = st.columns(2)
         with col1:
             x_col = st.selectbox("X-axis", numeric_cols, key="scatter_x")
         with col2:
             y_col = st.selectbox("Y-axis", numeric_cols, key="scatter_y", index=min(1, len(numeric_cols)-1))
-        
         color_col = st.selectbox("Color by", ["None"] + st.session_state.df.columns.tolist(), key="scatter_color")
         color_col = None if color_col == "None" else color_col
-        
         add_regression = st.checkbox("Add regression line", value=True)
-        
+
+        # Add option for square aspect ratio
+        use_square = st.checkbox("Square plot shape", value=True)
+
         if x_col and y_col:
             with st.spinner("Creating scatter plot..."):
                 try:
@@ -354,7 +353,16 @@ else:
                         color=color_col,
                         add_regression=add_regression
                     )
+                    
+                    # Set aspect ratio to be equal (square) if selected
+                    if use_square:
+                        fig.update_layout(
+                            height=600,  # You can adjust the size as needed
+                            width=600,   # Equal height and width for square shape
+                        )
+                    
                     st.plotly_chart(fig, use_container_width=True)
+                    
                     # Add explanation button
                     data_description = {
                         "x_column": x_col,
@@ -372,13 +380,13 @@ else:
                     }
                     viz_description = {
                         "regression_line": add_regression,
-                        "color_encoding": color_col is not None
+                        "color_encoding": color_col is not None,
+                        "square_shape": use_square
                     }
                     add_explanation_button(st, "scatter plot", data_description, viz_description)
-
                 except Exception as e:
                     st.error(f"Error creating scatter plot: {str(e)}")
-    
+
     # Modify the pair plot section in viz_tab4 to persist the plot state across reruns
 
     with viz_tab4:

@@ -1,11 +1,15 @@
 # core/viz/graph.py
-import networkx as nx
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple, Any, Union
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
+import plotly.graph_objects as go
+
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +24,7 @@ class CausalGraphVisualizer:
         """Initialize CausalGraphVisualizer"""
         pass
     
-    # Fix for core/viz/graph.py, in the visualize_graph method
+    # Modified version of CausalGraphVisualizer to add edge weights before arrow markers
 
     def visualize_graph(self, 
                     graph: nx.DiGraph, 
@@ -31,8 +35,24 @@ class CausalGraphVisualizer:
                     show_confidence: bool = True) -> go.Figure:
         """
         Visualize a causal graph using Plotly
+        
+        Args:
+            graph: NetworkX DiGraph representing the causal graph
+            node_labels: Dictionary mapping node IDs to labels
+            edge_weights: Whether to show edge weights
+            layout_type: Layout algorithm to use ('spring', 'circular', 'kamada_kawai', 'planar')
+            show_bidirected: Whether to show bidirected edges
+            show_confidence: Whether to show confidence values
+            
+        Returns:
+            Plotly figure
         """
         try:
+            # Ensure required imports are available
+            import networkx as nx
+            import numpy as np
+            import plotly.graph_objects as go
+            
             # Create a copy of the graph for visualization
             G = graph.copy()
             
@@ -50,130 +70,239 @@ class CausalGraphVisualizer:
                 except nx.NetworkXException:
                     pos = nx.spring_layout(G, seed=42)
             else:
-                raise ValueError(f"Unknown layout type: {layout_type}")
+                pos = nx.spring_layout(G, seed=42)  # Default to spring layout
             
             # Create figure
             fig = go.Figure()
             
-            # Process normal edges
+            # Process edges - separate into normal and bidirectional edges
             normal_edges = []
-            for u, v, data in G.edges(data=True):
-                # Skip bidirected edges (we'll add them separately)
-                if show_bidirected and 'bidirected' in data and data['bidirected']:
-                    continue
-                
-                normal_edges.append((u, v, data))
+            bidirected_edges = []
             
-            if normal_edges:
-                # Create individual traces for each edge
-                for u, v, data in normal_edges:
-                    x0, y0 = pos[u]
-                    x1, y1 = pos[v]
-                    
-                    # Edge text
-                    text = f"{u} → {v}"
-                    
-                    # Add weight if available
-                    if edge_weights and 'weight' in data:
-                        text += f"<br>Weight: {data['weight']:.3f}"
-                    
-                    # Determine color and width based on confidence
-                    if show_confidence and 'confidence' in data:
-                        text += f"<br>Confidence: {data['confidence']:.3f}"
-                        width = 1 + 3 * data['confidence']
-                        
-                        # Color based on confidence
-                        confidence = data['confidence']
-                        color = f"rgba({int(255 * (1 - confidence))}, {int(255 * confidence)}, 0, 0.8)"
-                    else:
-                        width = 1.5
-                        color = "rgba(0, 0, 200, 0.5)"
-                    
-                    # Create edge trace for this edge
-                    edge_trace = go.Scatter(
-                        x=[x0, x1, None], 
-                        y=[y0, y1, None],
-                        line=dict(width=width, color=color),
-                        hoverinfo='text',
-                        text=text,
-                        mode='lines',
-                        name='Edge',
-                        showlegend=False
-                    )
-                    
-                    fig.add_trace(edge_trace)
+            for u, v, data in G.edges(data=True):
+                if show_bidirected and 'bidirected' in data and data['bidirected'] and G.has_edge(v, u):
+                    # Only add bidirected edge once (not twice)
+                    if (v, u) not in [(e[0], e[1]) for e in bidirected_edges]:
+                        bidirected_edges.append((u, v, data))
+                else:
+                    normal_edges.append((u, v, data))
+            
+            # Add normal edges with arrows
+            for u, v, data in normal_edges:
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
                 
-                # Add a dummy trace just for legend
+                # Edge text/tooltip
+                edge_text = f"{u} → {v}"
+                
+                # Handle edge weights and confidence
+                edge_width = 1.5  # Default width
+                edge_color = 'rgba(50, 50, 200, 0.8)'  # Default color
+                edge_weight_text = ""
+                
+                if 'weight' in data and edge_weights:
+                    weight = data['weight']
+                    edge_text += f"<br>Weight: {weight:.3f}"
+                    edge_weight_text = f"{weight:.2f}"
+                    
+                    # Adjust width based on weight
+                    # edge_width = 1.5 + abs(weight)
+                    
+                    # Optionally change color based on positive/negative weight
+                    if weight < 0:
+                        edge_color = 'rgba(200, 50, 50, 0.8)'  # Red for negative
+                
+                if 'confidence' in data and show_confidence:
+                    conf = data['confidence']
+                    edge_text += f"<br>Confidence: {conf:.3f}"
+                    
+                    # Adjust width based on confidence
+                    # edge_width = 1.0 + 2.0 * conf
+                
+                # Create edge trace with arrow
+                # First create the line
                 fig.add_trace(go.Scatter(
-                    x=[None], y=[None],
-                    line=dict(width=1.5, color="rgba(0, 0, 200, 0.5)"),
+                    x=[x0, x1],
+                    y=[y0, y1],
                     mode='lines',
-                    name='Directed Edges'
+                    line=dict(width=edge_width, color=edge_color),
+                    hoverinfo='text',
+                    text=edge_text,
+                    showlegend=False
+                ))
+                
+                # Calculate the position for weight label (at 70% along the edge)
+                if edge_weight_text:
+                    weight_pos = 0.7  # Position along the edge for weight label
+                    weight_x = x0 + weight_pos * (x1 - x0)
+                    weight_y = y0 + weight_pos * (y1 - y0)
+                    
+                    # Add weight label
+                    fig.add_trace(go.Scatter(
+                        x=[weight_x],
+                        y=[weight_y],
+                        mode='text',
+                        text=[edge_weight_text],
+                        textposition="middle center",
+                        textfont=dict(
+                            size=10,
+                            color=edge_color
+                        ),
+                        hoverinfo='skip',
+                        showlegend=False
+                    ))
+                
+                # Calculate the position for the arrowhead (slightly before end point)
+                # This ensures the arrow is visible and not hidden by the target node
+                t = 0.9  # Position along the edge (0 is start, 1 is end)
+                arrow_x = x0 + t * (x1 - x0)
+                arrow_y = y0 + t * (y1 - y0)
+                
+                # Calculate angle for arrow
+                angle = np.arctan2(y1 - y0, x1 - x0)
+                
+                # Create arrowhead using a triangle marker
+                fig.add_trace(go.Scatter(
+                    x=[arrow_x],
+                    y=[arrow_y],
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-up',
+                        size=10,
+                        color=edge_color,
+                        angle=np.degrees(angle) + 90  # Rotate to point along edge
+                    ),
+                    hoverinfo='skip',
+                    showlegend=False
                 ))
             
-            # Process bidirected edges if enabled
-            if show_bidirected:
-                bidirected_edges = []
-                for u, v, data in G.edges(data=True):
-                    if 'bidirected' in data and data['bidirected']:
-                        # Only add once (since bidirected edges appear twice in DiGraph)
-                        if (v, u) not in [(e[0], e[1]) for e in bidirected_edges]:
-                            bidirected_edges.append((u, v, data))
+            # Add bidirected edges (with curved lines)
+            for u, v, data in bidirected_edges:
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
                 
-                if bidirected_edges:
-                    # Create individual traces for each bidirected edge
-                    for u, v, data in bidirected_edges:
-                        x0, y0 = pos[u]
-                        x1, y1 = pos[v]
-                        
-                        # Create curved line for bidirected edges
-                        # Calculate midpoint and offset for curve
-                        mid_x, mid_y = (x0 + x1) / 2, (y0 + y1) / 2
-                        dx, dy = x1 - x0, y1 - y0
-                        offset_x = -dy * 0.1  # Perpendicular offset
-                        offset_y = dx * 0.1   # Perpendicular offset
-                        
-                        # Create curved path with some interpolated points
-                        edge_x = [x0, 
-                                (x0 + mid_x) / 2 + offset_x, 
-                                mid_x + offset_x, 
-                                (mid_x + x1) / 2 + offset_x, 
-                                x1, None]
-                        edge_y = [y0, 
-                                (y0 + mid_y) / 2 + offset_y, 
-                                mid_y + offset_y, 
-                                (mid_y + y1) / 2 + offset_y, 
-                                y1, None]
-                        
-                        # Edge text
-                        text = f"{u} ↔ {v}"
-                        
-                        # Add confidence if available
-                        width = 1.0
-                        if show_confidence and 'confidence' in data:
-                            text += f"<br>Confidence: {data['confidence']:.3f}"
-                            width = 1 + 2 * data['confidence']
-                        
-                        # Create bidirected edge trace
-                        bidirect_trace = go.Scatter(
-                            x=edge_x, y=edge_y,
-                            line=dict(width=width, color="rgba(200, 0, 0, 0.5)", dash="dot"),
-                            hoverinfo='text',
-                            text=text,
-                            mode='lines',
-                            name='Bidirected Edge',
-                            showlegend=False
-                        )
-                        
-                        fig.add_trace(bidirect_trace)
+                # Create curved path
+                # Calculate the midpoint and perpendicular offset
+                mid_x = (x0 + x1) / 2
+                mid_y = (y0 + y1) / 2
+                
+                # Get vector perpendicular to edge
+                dx = x1 - x0
+                dy = y1 - y0
+                length = np.sqrt(dx*dx + dy*dy)
+                nx = -dy / length  # Perpendicular normalized vector
+                ny = dx / length
+                
+                # Control point offset
+                offset = length * 0.2
+                
+                # Control point coordinates
+                cx = mid_x + offset * nx
+                cy = mid_y + offset * ny
+                
+                # Generate curved path with Bezier curve
+                t = np.linspace(0, 1, 50)
+                curve_x = (1-t)**2 * x0 + 2 * (1-t) * t * cx + t**2 * x1
+                curve_y = (1-t)**2 * y0 + 2 * (1-t) * t * cy + t**2 * y1
+                
+                # Edge text/tooltip
+                edge_text = f"{u} ↔ {v}"
+                edge_weight_text = ""
+                
+                if 'weight' in data and edge_weights:
+                    weight = data['weight']
+                    edge_text += f"<br>Weight: {weight:.3f}"
+                    edge_weight_text = f"{weight:.2f}"
+                
+                if 'confidence' in data and show_confidence:
+                    edge_text += f"<br>Confidence: {data['confidence']:.3f}"
+                
+                # Add curved edge
+                fig.add_trace(go.Scatter(
+                    x=curve_x,
+                    y=curve_y,
+                    mode='lines',
+                    line=dict(width=1.5, color='rgba(150, 50, 150, 0.8)', dash='dash'),
+                    hoverinfo='text',
+                    text=edge_text,
+                    showlegend=False
+                ))
+                
+                # Add weight label near the middle of the curve if weight exists
+                if edge_weight_text:
+                    # Position for the weight is at the peak of the curve
+                    t_weight = 0.5  # Middle of the curve
+                    weight_x = (1-t_weight)**2 * x0 + 2 * (1-t_weight) * t_weight * cx + t_weight**2 * x1
+                    weight_y = (1-t_weight)**2 * y0 + 2 * (1-t_weight) * t_weight * cy + t_weight**2 * y1
                     
-                    # Add a dummy trace just for legend
+                    # Add a slight offset to move the weight label away from the curve
+                    weight_x += nx * (length * 0.05)
+                    weight_y += ny * (length * 0.05)
+                    
+                    # Add weight label
                     fig.add_trace(go.Scatter(
-                        x=[None], y=[None],
-                        line=dict(width=1.0, color="rgba(200, 0, 0, 0.5)", dash="dot"),
-                        mode='lines',
-                        name='Bidirected Edges'
+                        x=[weight_x],
+                        y=[weight_y],
+                        mode='text',
+                        text=[edge_weight_text],
+                        textposition="middle center",
+                        textfont=dict(
+                            size=10,
+                            color='rgba(150, 50, 150, 0.8)'
+                        ),
+                        hoverinfo='skip',
+                        showlegend=False
                     ))
+                
+                # Add arrowhead in both directions
+                # First direction (u to v)
+                t1 = 0.85  # Position for first arrowhead
+                arrow1_x = (1-t1)**2 * x0 + 2 * (1-t1) * t1 * cx + t1**2 * x1
+                arrow1_y = (1-t1)**2 * y0 + 2 * (1-t1) * t1 * cy + t1**2 * y1
+                
+                # Calculate tangent angle at t1
+                tangent_x = -2 * (1-t1) * x0 + 2 * (1-2*t1) * cx + 2 * t1 * x1
+                tangent_y = -2 * (1-t1) * y0 + 2 * (1-2*t1) * cy + 2 * t1 * y1
+                angle1 = np.arctan2(tangent_y, tangent_x)
+                
+                # Second direction (v to u)
+                t2 = 0.15  # Position for second arrowhead
+                arrow2_x = (1-t2)**2 * x0 + 2 * (1-t2) * t2 * cx + t2**2 * x1
+                arrow2_y = (1-t2)**2 * y0 + 2 * (1-t2) * t2 * cy + t2**2 * y1
+                
+                # Calculate tangent angle at t2
+                tangent_x = -2 * (1-t2) * x0 + 2 * (1-2*t2) * cx + 2 * t2 * x1
+                tangent_y = -2 * (1-t2) * y0 + 2 * (1-2*t2) * cy + 2 * t2 * y1
+                angle2 = np.arctan2(tangent_y, tangent_x) + np.pi  # Reverse direction
+                
+                # Add arrowheads
+                fig.add_trace(go.Scatter(
+                    x=[arrow1_x],
+                    y=[arrow1_y],
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-up',
+                        size=8,
+                        color='rgba(150, 50, 150, 0.8)',
+                        angle=np.degrees(angle1) + 90
+                    ),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
+                
+                fig.add_trace(go.Scatter(
+                    x=[arrow2_x],
+                    y=[arrow2_y],
+                    mode='markers',
+                    marker=dict(
+                        symbol='triangle-up',
+                        size=8,
+                        color='rgba(150, 50, 150, 0.8)',
+                        angle=np.degrees(angle2) + 90
+                    ),
+                    hoverinfo='skip',
+                    showlegend=False
+                ))
             
             # Add nodes
             node_x = []
@@ -190,63 +319,73 @@ class CausalGraphVisualizer:
                 # Node label
                 if node_labels and node in node_labels:
                     label = node_labels[node]
-                    node_text.append(f"Node ID: {node}<br>Label: {label}")
+                    node_text.append(f"{label}")
                 else:
-                    node_text.append(f"Node ID: {node}")
+                    node_text.append(f"{node}")
                 
-                # Node color and size
-                node_attrs = G.nodes[node]
-                
-                # Check if it's a hidden variable
-                if 'is_hidden' in node_attrs and node_attrs['is_hidden']:
-                    node_color.append('rgba(255, 0, 0, 0.8)')  # Red for hidden variables
+                # Node color and size based on attributes
+                if 'is_hidden' in G.nodes[node] and G.nodes[node]['is_hidden']:
+                    node_color.append('rgba(255, 150, 150, 0.8)')  # Red for hidden variables
                     node_size.append(15)
                 else:
-                    node_color.append('rgba(0, 100, 255, 0.8)')  # Blue for observed variables
-                    node_size.append(10)
+                    node_color.append('rgba(100, 200, 255, 0.8)')  # Blue for observed variables
+                    node_size.append(12)
             
             node_trace = go.Scatter(
                 x=node_x, y=node_y,
                 mode='markers+text',
-                text=[str(i) for i in G.nodes()],
-                textposition="top center",
+                text=node_text,
+                textposition="middle center",
                 hoverinfo='text',
-                hovertext=node_text,
                 marker=dict(
                     color=node_color,
                     size=node_size,
-                    line=dict(width=1, color='rgba(0, 0, 0, 0.8)')
+                    line=dict(width=2, color='white')
                 ),
                 name='Nodes'
             )
             
             fig.add_trace(node_trace)
             
+            # Add legend traces for edge types (won't show on plot but will show in legend)
+            fig.add_trace(go.Scatter(
+                x=[None], y=[None],
+                mode='lines',
+                line=dict(width=2, color='rgba(50, 50, 200, 0.8)'),
+                name='Directed Edge'
+            ))
+            
+            if bidirected_edges:
+                fig.add_trace(go.Scatter(
+                    x=[None], y=[None],
+                    mode='lines',
+                    line=dict(width=1.5, color='rgba(150, 50, 150, 0.8)', dash='dash'),
+                    name='Bidirected Edge'
+                ))
+            
             # Update layout
             fig.update_layout(
-                title=dict(
-                    text="Causal Graph Visualization",
-                    font=dict(size=16)
-                ),
+                title="Causal Graph",
                 showlegend=True,
                 hovermode='closest',
                 margin=dict(b=20, l=5, r=5, t=40),
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
                 legend=dict(
                     yanchor="top",
                     y=0.99,
                     xanchor="left",
-                    x=0.01,
-                    bgcolor="rgba(255, 255, 255, 0.8)"
+                    x=0.01
                 ),
                 plot_bgcolor='rgba(255, 255, 255, 1)',
-                paper_bgcolor='rgba(255, 255, 255, 1)'
+                paper_bgcolor='rgba(255, 255, 255, 1)',
+                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
             )
-
-            # Add a legend title
+            
+            # Make it more square for better visualization
             fig.update_layout(
-                legend_title_text='Graph Elements'
+                autosize=False,
+                width=700,
+                height=700
             )
             
             return fig
