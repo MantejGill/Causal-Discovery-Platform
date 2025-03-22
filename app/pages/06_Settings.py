@@ -409,7 +409,7 @@ With Retrieval-Augmented Generation (RAG), you can:
 
 The LLM providers we support are:
 - **OpenAI**: Commercial provider with powerful models like GPT-4
-- **OpenRouter (DeepSeek R1)**: Free, open-source model with MIT license and performance comparable to OpenAI's o1
+- **OpenRouter**: Free, open-source model with MIT license and performance comparable to OpenAI's o1
 """)
 
 # Check if we need to apply the theme

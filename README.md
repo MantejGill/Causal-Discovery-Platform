@@ -27,6 +27,27 @@ This platform enables domain experts without specialized statistical training to
 
 ![System Architecture](docs/architecture-diagram.png)
 
+## Project Structure
+
+This project is organized into several modules, each with its own specific functionality:
+
+- **[App](app/README.md)**: User interface components and pages
+  - **[Pages](app/pages/README.md)**: Application workflow pages
+  - **[Components](app/components/README.md)**: Reusable UI elements
+
+- **[Core](core/README.md)**: Business logic and algorithms
+  - **[Algorithms](core/algorithms/README.md)**: Causal discovery algorithms
+  - **[Data](core/data/README.md)**: Data handling and processing
+  - **[LLM](core/llm/README.md)**: Large Language Model integration
+  - **[RAG](core/rag/README.md)**: Retrieval-Augmented Generation
+  - **[Visualization](core/viz/README.md)**: Data and graph visualization
+
+- **[Database](db/README.md)**: Data persistence
+
+- **[Utils](utils/README.md)**: Utility functions
+
+Each module has its own README with detailed information.
+
 ## Getting Started
 
 ### Prerequisites
