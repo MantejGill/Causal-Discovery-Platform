@@ -8,10 +8,12 @@ from core.algorithms.selector import AlgorithmSelector
 from core.algorithms.executor import AlgorithmExecutor
 from core.algorithms.ensemble import AlgorithmEnsemble
 from core.viz.graph import CausalGraphVisualizer
+from core.llm.algorithm_recommender import LLMAlgorithmRecommender, display_llm_recommendations
 
 # Ensure session state is initialized
 for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor', 
-            'causal_graphs', 'current_graph', 'refined_graph', 'llm_adapter', 'theme']:
+            'causal_graphs', 'current_graph', 'refined_graph', 'llm_adapter', 'theme',
+            'current_judgments', 'algorithm_suggestions']:
     if var not in st.session_state:
         if var in ['data_loaded']:
             st.session_state[var] = False
@@ -33,6 +35,163 @@ else:
     algorithm_selector = AlgorithmSelector()
     algorithm_executor = AlgorithmExecutor()
     
+    # Key Judgments for Algorithm Selection section (moved from Data Exploration page)
+    st.subheader("Key Judgments for Algorithm Selection")
+    
+    if st.session_state.data_profile:
+        profile = st.session_state.data_profile
+        
+        # Initialize current judgments from profile if not already set
+        if st.session_state.current_judgments is None:
+            st.session_state.current_judgments = profile["judgments"].copy()
+        
+        # Function to update algorithm recommendations when judgments change
+        def update_recommendations():
+            # Create a temporary profile with updated judgments
+            updated_profile = profile.copy()
+            updated_profile["judgments"] = st.session_state.current_judgments
+            
+            # Get new algorithm recommendations
+            st.session_state.algorithm_suggestions = algorithm_selector.suggest_algorithms(updated_profile)
+        
+        # Use multiple columns for the dropdowns
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
+        col5, col6 = st.columns(2)
+        
+        # First row of dropdowns
+        with col1:
+            st.session_state.current_judgments["prefer_nonparametric"] = st.selectbox(
+                "Prefer non-parametric methods",
+                [True, False],
+                index=0 if st.session_state.current_judgments["prefer_nonparametric"] else 1,
+                on_change=update_recommendations
+            )
+        
+        with col2:
+            st.session_state.current_judgments["may_have_latent_confounders"] = st.selectbox(
+                "May have latent confounders",
+                [True, False],
+                index=0 if st.session_state.current_judgments["may_have_latent_confounders"] else 1,
+                on_change=update_recommendations
+            )
+        
+        # Second row of dropdowns
+        with col3:
+            st.session_state.current_judgments["prefer_constraint_based"] = st.selectbox(
+                "Prefer constraint-based methods",
+                [True, False],
+                index=0 if st.session_state.current_judgments["prefer_constraint_based"] else 1,
+                on_change=update_recommendations
+            )
+        
+        with col4:
+            st.session_state.current_judgments["suitable_for_lingam"] = st.selectbox(
+                "Suitable for LiNGAM methods",
+                [True, False],
+                index=0 if st.session_state.current_judgments["suitable_for_lingam"] else 1,
+                on_change=update_recommendations
+            )
+        
+        # Third row of dropdowns
+        with col5:
+            st.session_state.current_judgments["suitable_for_nonlinear_methods"] = st.selectbox(
+                "Suitable for nonlinear methods",
+                [True, False],
+                index=0 if st.session_state.current_judgments["suitable_for_nonlinear_methods"] else 1,
+                on_change=update_recommendations
+            )
+        
+        with col6:
+            st.session_state.current_judgments["may_be_time_series"] = st.selectbox(
+                "May be time series data",
+                [True, False],
+                index=0 if st.session_state.current_judgments["may_be_time_series"] else 1,
+                on_change=update_recommendations
+            )
+        
+        # Add explanation of key judgments
+        st.subheader("Key Judgments Explanation")
+        
+        with st.expander("Understanding Key Judgments", expanded=True):
+            st.markdown("""
+            Each judgment affects which causal discovery algorithms are recommended:
+            
+            - **Prefer non-parametric methods**: Select if your data doesn't follow standard distributions or contains outliers. Non-parametric methods make fewer assumptions about the data distribution.
+            
+            - **May have latent confounders**: Select if you suspect there are unmeasured variables that influence multiple observed variables. This will prioritize algorithms like FCI that can handle hidden confounders.
+            
+            - **Prefer constraint-based methods**: Select if you want algorithms that rely on conditional independence tests (like PC, FCI) rather than score-based optimization. These are often more interpretable but can be sensitive to errors in independence tests.
+            
+            - **Suitable for LiNGAM methods**: Select if your data has continuous, non-Gaussian distributions. LiNGAM methods exploit non-Gaussianity to determine causal direction.
+            
+            - **Suitable for nonlinear methods**: Select if relationships between variables are likely nonlinear. This will prioritize kernel-based methods and specific nonlinear algorithms.
+            
+            - **May be time series data**: Select if your data has a temporal ordering or represents measurements over time. This will prioritize time-series specific methods like Granger causality or VAR-LiNGAM.
+            """)
+        
+        # Update recommendations if they haven't been initialized yet
+        if st.session_state.algorithm_suggestions is None:
+            update_recommendations()
+            
+        # Add a button to reset judgments to original values
+        if st.button("Reset to Original Judgments"):
+            st.session_state.current_judgments = profile["judgments"].copy()
+            update_recommendations()
+            st.experimental_rerun()
+    else:
+        st.info("Data profile not available. Please go to Data Exploration page first.")
+    
+    # Display algorithm recommendations
+    st.subheader("Recommended Algorithms")
+    
+    if st.session_state.algorithm_suggestions:
+        algorithm_suggestions = st.session_state.algorithm_suggestions
+        
+        if algorithm_suggestions["primary"]:
+            st.markdown("**Primary recommendations:**")
+            for algo in algorithm_suggestions["primary"]:
+                st.markdown(f"* {algo}")
+        else:
+            st.markdown("**No primary recommendations based on current judgments.**")
+        
+        if algorithm_suggestions["secondary"]:
+            st.markdown("**Secondary recommendations:**")
+            for algo in algorithm_suggestions["secondary"]:
+                st.markdown(f"* {algo}")
+        else:
+            st.markdown("**No secondary recommendations based on current judgments.**")
+        
+        if algorithm_suggestions["not_recommended"]:
+            st.markdown("**Not recommended for this dataset:**")
+            for algo in algorithm_suggestions["not_recommended"]:
+                st.markdown(f"* {algo}")
+    else:
+        st.info("No algorithm suggestions available. Please adjust the key judgments above.")
+    
+    # Add LLM-based recommendations section with toggle
+    st.subheader("AI-Powered Algorithm Recommendations")
+    
+    use_llm_recommendations = st.toggle(
+        "Use LLM for detailed algorithm recommendations",
+        value=False,
+        help="When enabled, uses Large Language Models to provide detailed explanations for algorithm recommendations"
+    )
+    
+    if use_llm_recommendations and st.session_state.current_judgments is not None and st.session_state.data_profile is not None:
+        # Display LLM-based recommendations
+        display_llm_recommendations(
+            llm_adapter=st.session_state.llm_adapter,
+            data_profile=st.session_state.data_profile,
+            judgments=st.session_state.current_judgments
+        )
+    elif use_llm_recommendations:
+        st.info("Data profile or judgments not available. Please ensure data is loaded and processed.")
+    else:
+        st.info("Toggle the switch above to get AI-powered detailed recommendations with explanations for why each algorithm is suitable for your dataset.")
+    
+    st.divider()
+    
     # Get all available algorithms
     all_algorithms = algorithm_selector.get_all_algorithms()
     
@@ -40,11 +199,11 @@ else:
     tab1, tab2, tab3 = st.tabs(["Recommended", "Manual Selection", "Ensemble"])
     
     with tab1:
-        st.subheader("Recommended Algorithms")
+        st.subheader("Run Recommended Algorithms")
         
-        if st.session_state.data_profile:
-            # Get recommended algorithms based on data profile
-            algorithm_suggestions = algorithm_selector.suggest_algorithms(st.session_state.data_profile)
+        if st.session_state.algorithm_suggestions:
+            # Use the recommendations from the Key Judgments section
+            algorithm_suggestions = st.session_state.algorithm_suggestions
             
             # Display primary recommendations
             st.write("#### Primary Recommendations")
@@ -70,6 +229,8 @@ else:
                                 
                                 except Exception as e:
                                     st.error(f"Error running {alg_id}: {str(e)}")
+            else:
+                st.info("No primary recommendations based on current judgments.")
             
             # Display secondary recommendations
             st.write("#### Secondary Recommendations")
@@ -95,8 +256,10 @@ else:
                                 
                                 except Exception as e:
                                     st.error(f"Error running {alg_id}: {str(e)}")
+            else:
+                st.info("No secondary recommendations based on current judgments.")
         else:
-            st.info("Data profile not available. Please go to Data Exploration page first.")
+            st.info("No algorithm recommendations available. Please adjust the key judgments above.")
     
     with tab2:
         st.subheader("Manual Algorithm Selection")
