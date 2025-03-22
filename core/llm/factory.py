@@ -151,7 +151,7 @@ class LLMFactory:
                 "free_tier": False
             },
             "openrouter": {
-                "name": "OpenRouter (DeepSeek R1)",
+                "name": "OpenRouter",
                 "description": "Access to DeepSeek's open-source models via OpenRouter",
                 "models": [
                     {"id": "deepseek/deepseek-r1:free", "name": "DeepSeek R1", "description": "Open-source model comparable to OpenAI's o1, MIT licensed"},

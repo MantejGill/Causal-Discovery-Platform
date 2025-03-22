@@ -142,32 +142,7 @@ else:
     else:
         st.info("Data profile not available. Please go to Data Exploration page first.")
     
-    # Display algorithm recommendations
-    st.subheader("Recommended Algorithms")
-    
-    if st.session_state.algorithm_suggestions:
-        algorithm_suggestions = st.session_state.algorithm_suggestions
-        
-        if algorithm_suggestions["primary"]:
-            st.markdown("**Primary recommendations:**")
-            for algo in algorithm_suggestions["primary"]:
-                st.markdown(f"* {algo}")
-        else:
-            st.markdown("**No primary recommendations based on current judgments.**")
-        
-        if algorithm_suggestions["secondary"]:
-            st.markdown("**Secondary recommendations:**")
-            for algo in algorithm_suggestions["secondary"]:
-                st.markdown(f"* {algo}")
-        else:
-            st.markdown("**No secondary recommendations based on current judgments.**")
-        
-        if algorithm_suggestions["not_recommended"]:
-            st.markdown("**Not recommended for this dataset:**")
-            for algo in algorithm_suggestions["not_recommended"]:
-                st.markdown(f"* {algo}")
-    else:
-        st.info("No algorithm suggestions available. Please adjust the key judgments above.")
+    # The list of recommended algorithms is shown in the Recommended tab below
     
     # Add LLM-based recommendations section with toggle
     st.subheader("AI-Powered Algorithm Recommendations")
@@ -790,7 +765,7 @@ else:
         with col1:
             layout_type = st.selectbox(
                 "Layout", 
-                ["spring", "circular", "kamada_kawai", "planar"],
+                ["circular", "spring", "kamada_kawai", "planar"],
                 help="Graph layout algorithm"
             )
         with col2:
