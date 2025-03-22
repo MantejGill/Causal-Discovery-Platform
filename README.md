@@ -72,7 +72,7 @@ Each module has its own README with detailed information.
 
    Alternatively, you can use the default OpenRouter key by running:
    ```bash
-   echo "OPENROUTER_API_KEY=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" > .env
+   echo "OPENROUTER_API_KEY=your-key" > .env
    ```
 
 3. Build and run with Docker Compose:
@@ -114,7 +114,7 @@ Each module has its own README with detailed information.
 
    Alternatively, create a .env file in the project root:
    ```bash
-   echo "OPENROUTER_API_KEY=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" > .env
+   echo "OPENROUTER_API_KEY=your-key" > .env
    ```
 
 5. Run the application:
