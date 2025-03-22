@@ -82,6 +82,33 @@ class SimpleDocumentProcessor:
                 sanitized[k] = str(v)
         return sanitized
     
+    def _extract_title_from_text(self, content: str) -> str:
+        """Extract title from text content
+        
+        For text files, we'll use the first non-empty line as the title
+        if it meets certain criteria
+        
+        Returns:
+            str: The extracted title or empty string if no title could be extracted
+        """
+        if not content:
+            return ""
+            
+        lines = content.split('\n')
+        non_empty_lines = [line.strip() for line in lines if line.strip()]
+        
+        if non_empty_lines:
+            # Use the first line as title if it's reasonable length
+            first_line = non_empty_lines[0]
+            if (len(first_line) > 5 and # Not too short
+                len(first_line) < 200 and # Not too long
+                not any(first_line.lower().startswith(x) for x in ['#', '<', '<!--', '/*', '```', 'title:', 'author:', 'date:']) and
+                not any(x in first_line.lower() for x in ['http', 'www'])
+               ):
+                return first_line
+                
+        return ""
+    
     def process_text_file(self, file_path: Union[str, Path], metadata: Dict[str, Any]) -> Dict[str, Any]:
         """Process a text file directly"""
         document_id = str(uuid.uuid4())
@@ -104,6 +131,13 @@ class SimpleDocumentProcessor:
                 # Try with different encoding if UTF-8 fails
                 with open(file_path, 'r', encoding='latin-1') as file:
                     content = file.read()
+            
+            # Extract title if not already provided in metadata
+            if not metadata.get("title") or metadata.get("title") == os.path.basename(file_path):
+                extracted_title = self._extract_title_from_text(content)
+                if extracted_title:
+                    metadata["title"] = extracted_title
+                    logger.info(f"Extracted title from text file: {extracted_title}")
             
             # Create chunks (simple splitting by paragraphs)
             chunks = []
@@ -165,6 +199,41 @@ class SimpleDocumentProcessor:
                 try:
                     # Try to import PyPDF2
                     import PyPDF2
+                    
+                    # Extract title if not already provided in metadata
+                    if not metadata.get("title") or metadata.get("title") == os.path.basename(file_path):
+                        extracted_title = ""
+                        with open(file_path, 'rb') as pdf_file:
+                            pdf_reader = PyPDF2.PdfReader(pdf_file)
+                            
+                            # Try to get title from PDF metadata
+                            if pdf_reader.metadata and pdf_reader.metadata.title:
+                                extracted_title = pdf_reader.metadata.title
+                                if extracted_title and len(extracted_title.strip()) > 0:
+                                    metadata["title"] = extracted_title.strip()
+                                    logger.info(f"Extracted title from PDF metadata: {extracted_title}")
+                            
+                            # If no title in metadata, try to extract from first page content
+                            if not extracted_title and len(pdf_reader.pages) > 0:
+                                first_page = pdf_reader.pages[0]
+                                text = first_page.extract_text()
+                                
+                                if text:
+                                    # Try to find title in first few lines
+                                    lines = text.split('\n')
+                                    non_empty_lines = [line.strip() for line in lines if line.strip()]
+                                    
+                                    # Look for title candidates in first few lines
+                                    for i, line in enumerate(non_empty_lines[:5]):
+                                        # Basic heuristics for a title
+                                        if (len(line) > 10 and  # Not too short
+                                            len(line) < 200 and  # Not too long
+                                            not line.lower().startswith(('abstract', 'introduction', 'chapter')) and
+                                            not any(x in line.lower() for x in ['page', 'http', 'www', '@', 'published'])
+                                        ):
+                                            metadata["title"] = line.strip()
+                                            logger.info(f"Extracted title from PDF content: {line}")
+                                            break
                     
                     chunks = []
                     with open(file_path, 'rb') as pdf_file:
@@ -343,14 +412,52 @@ class SimpleDocumentProcessor:
             count = self.db._collection.count()
             
             if count > 0:
-                # Delete all documents
-                self.db._collection.delete(ids=self.db._collection.get()['ids'])
-                self._safe_persist()
-            
-            return {
-                "status": "success",
-                "message": f"Cleared {count} documents from the database"
-            }
+                try:
+                    # Get all document IDs safely
+                    results = self.db._collection.get()
+                    
+                    if results and 'ids' in results and results['ids']:
+                        # Delete all documents
+                        self.db._collection.delete(ids=results['ids'])
+                        self._safe_persist()
+                        logger.info(f"Successfully cleared database: {count} documents removed")
+                        return {
+                            "status": "success",
+                            "message": f"Cleared {count} documents from the database"
+                        }
+                    else:
+                        # Try alternative approach - delete without IDs
+                        self.db._collection.delete()
+                        self._safe_persist()
+                        logger.info("Used alternative deletion method to clear database")
+                        return {
+                            "status": "success",
+                            "message": f"Used alternative method to clear database"
+                        }
+                except Exception as inner_e:
+                    logger.error(f"Error during deletion: {str(inner_e)}")
+                    # Try last resort approach - recreate collection
+                    try:
+                        # Reinitialize the database
+                        self.db = Chroma(
+                            embedding_function=self.embeddings,
+                            persist_directory=self.db_dir
+                        )
+                        logger.info("Reinitialized database as last resort")
+                        return {
+                            "status": "success",
+                            "message": "Recreated database due to deletion failure"
+                        }
+                    except Exception as last_e:
+                        return {
+                            "status": "error",
+                            "message": f"Multiple errors clearing database: {str(inner_e)}, {str(last_e)}"
+                        }
+            else:
+                return {
+                    "status": "success",
+                    "message": "Database already empty (0 documents)"
+                }
             
         except Exception as e:
             logger.error(f"Error clearing database: {str(e)}")

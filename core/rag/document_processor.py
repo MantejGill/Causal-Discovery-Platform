@@ -161,9 +161,65 @@ class DocumentProcessor:
             logger.error(f"Error processing document: {str(e)}")
             return {"status": "error", "message": str(e)}
     
+    def _extract_title_from_pdf(self, file_path: Union[str, Path]) -> str:
+        """Extract title from a PDF document
+        
+        Attempts to extract the title using several heuristics:
+        1. Look for text that appears to be a title on the first page
+        2. Use PDF metadata if available
+        
+        Returns:
+            str: The extracted title or empty string if no title could be extracted
+        """
+        try:
+            title = ""
+            # Try to extract from PDF metadata first
+            with open(file_path, 'rb') as pdf_file:
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                
+                # Check PDF metadata
+                if pdf_reader.metadata and pdf_reader.metadata.title:
+                    title = pdf_reader.metadata.title
+                    if title and len(title.strip()) > 0:
+                        return title.strip()
+                
+                # If no title in metadata, try to extract from first page content
+                if len(pdf_reader.pages) > 0:
+                    first_page = pdf_reader.pages[0]
+                    text = first_page.extract_text()
+                    
+                    if text:
+                        # Try to find title in first few lines
+                        lines = text.split('\n')
+                        non_empty_lines = [line.strip() for line in lines if line.strip()]
+                        
+                        # Look for title candidates: non-empty lines near the top
+                        # that aren't too long and don't look like headers or footers
+                        for i, line in enumerate(non_empty_lines[:5]):  # Check first 5 non-empty lines
+                            # Basic heuristics for a title
+                            if (len(line) > 10 and  # Not too short
+                                len(line) < 200 and  # Not too long
+                                not line.lower().startswith(('abstract', 'introduction', 'chapter')) and
+                                not any(x in line.lower() for x in ['page', 'http', 'www', '@', 'published'])
+                               ):
+                                title = line
+                                break
+            
+            return title.strip()
+        except Exception as e:
+            logger.warning(f"Error extracting title from PDF: {str(e)}")
+            return ""
+    
     async def _load_pdf(self, file_path: Union[str, Path], metadata: Dict[str, Any]) -> List[Document]:
         """Load content from a PDF file"""
         try:
+            # Extract title if not already provided in metadata
+            if not metadata.get("title") or metadata.get("title") == os.path.basename(file_path):
+                title = self._extract_title_from_pdf(file_path)
+                if title:
+                    metadata["title"] = title
+                    logger.info(f"Extracted title from PDF: {title}")
+            
             # Use LangChain's PyPDFLoader for cleaner loading
             loader = PyPDFLoader(str(file_path))
             documents = loader.load()
@@ -388,16 +444,53 @@ class DocumentProcessor:
             # Get count before deletion
             count = self.db._collection.count()
             
-            # Delete all documents
             if count > 0:
-                self.db._collection.delete(ids=self.db._collection.get()['ids'])
-                self._safe_persist()
-            
-            return {
-                "status": "success",
-                "message": f"Cleared {count} documents from the database"
-            }
-            
+                try:
+                    # Get all document IDs safely
+                    results = self.db._collection.get()
+                    
+                    if results and 'ids' in results and results['ids']:
+                        # Delete all documents
+                        self.db._collection.delete(ids=results['ids'])
+                        self._safe_persist()
+                        logger.info(f"Successfully cleared database: {count} documents removed")
+                        return {
+                            "status": "success",
+                            "message": f"Cleared {count} documents from the database"
+                        }
+                    else:
+                        # Try alternative approach - delete without IDs
+                        self.db._collection.delete()
+                        self._safe_persist()
+                        logger.info("Used alternative deletion method to clear database")
+                        return {
+                            "status": "success",
+                            "message": f"Used alternative method to clear database"
+                        }
+                except Exception as inner_e:
+                    logger.error(f"Error during deletion: {str(inner_e)}")
+                    # Try last resort approach - recreate collection
+                    try:
+                        # Reinitialize the database
+                        self.db = Chroma(
+                            embedding_function=self.embeddings,
+                            persist_directory=self.db_dir
+                        )
+                        logger.info("Reinitialized database as last resort")
+                        return {
+                            "status": "success",
+                            "message": "Recreated database due to deletion failure"
+                        }
+                    except Exception as last_e:
+                        return {
+                            "status": "error",
+                            "message": f"Multiple errors clearing database: {str(inner_e)}, {str(last_e)}"
+                        }
+            else:
+                return {
+                    "status": "success",
+                    "message": "Database already empty (0 documents)"
+                }
         except Exception as e:
             logger.error(f"Error clearing database: {str(e)}")
             return {"status": "error", "message": str(e)}

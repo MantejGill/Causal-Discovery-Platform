@@ -131,7 +131,8 @@ with tab1:
     if uploaded_files:
         # Document metadata
         with st.expander("Document Metadata", expanded=True):
-            doc_title = st.text_input("Document Title", "")
+            st.info("The system will attempt to extract titles from PDF documents automatically. You can override this by entering a title below.")
+            doc_title = st.text_input("Document Title", "", help="Leave blank to auto-extract from PDF metadata or content")
             doc_author = st.text_input("Author", "")
             doc_tags = st.text_input("Tags (comma-separated)", "")
             doc_description = st.text_area("Description", "", height=100)
@@ -175,7 +176,10 @@ with tab1:
                         
                         # Show success or error message
                         if result["status"] == "success":
-                            st.success(f"Processed {uploaded_file.name}: {result['chunks']} chunks created")
+                            title_display = f": '{result.get('metadata', {}).get('title', '')}'"
+                            if not result.get('metadata', {}).get('title', ''):
+                                title_display = ""
+                            st.success(f"Processed {uploaded_file.name}{title_display}: {result['chunks']} chunks created")
                         else:
                             st.error(f"Error processing {uploaded_file.name}: {result.get('message', 'Unknown error')}")
                     
@@ -197,6 +201,7 @@ with tab1:
             for filename, result in st.session_state.rag_upload_status.items():
                 upload_data.append({
                     "File": filename,
+                    "Title": result.get("metadata", {}).get("title", ""),
                     "Status": result["status"],
                     "Document ID": result.get("document_id", "N/A"),
                     "Chunks": result.get("chunks", 0) if result["status"] == "success" else 0,
@@ -322,8 +327,10 @@ with tab2:
                         # Store result
                         if result["status"] == "success":
                             successful += 1
+                            title_display = f" (Title: '{result.get('metadata', {}).get('title', '')}')" if result.get('metadata', {}).get('title', '') else ""
                             results.append({
                                 "file": file_metadata["filename"],
+                                "title": result.get('metadata', {}).get('title', 'Untitled'),
                                 "status": "success",
                                 "chunks": result.get("chunks", 0),
                                 "document_id": result.get("document_id", "")
@@ -355,6 +362,14 @@ with tab2:
                 if results:
                     with st.expander("Detailed Results", expanded=True):
                         results_df = pd.DataFrame(results)
+                        # Reorder columns to put title after file
+                        if "title" in results_df.columns:
+                            cols = results_df.columns.tolist()
+                            # Move title after file
+                            file_idx = cols.index("file")
+                            cols.remove("title")
+                            cols.insert(file_idx + 1, "title")
+                            results_df = results_df[cols]
                         st.dataframe(results_df, use_container_width=True)
                 
                 # Refresh document list
@@ -384,11 +399,19 @@ with tab3:
                 doc_list = []
                 for doc in docs["documents"]:
                     metadata = doc.get("metadata", {})
+                    title = metadata.get("title", "Untitled")
+                    filename = metadata.get("filename", metadata.get("source", "Unknown"))
+                    
+                    # Highlight if title was auto-extracted
+                    title_source = ""
+                    if title != "Untitled" and title != filename:
+                        title_source = "📄 " # Indicate extracted title
+                    
                     doc_list.append({
                         "Document ID": doc.get("document_id", "Unknown"),
-                        "Title": metadata.get("title", "Untitled"),
+                        "Title": f"{title_source}{title}",
                         "Author": metadata.get("author", "Unknown"),
-                        "Filename": metadata.get("filename", metadata.get("source", "Unknown")),
+                        "Filename": filename,
                         "Tags": metadata.get("tags", ""),
                         "Uploaded": metadata.get("uploaded_at", "Unknown")
                     })
@@ -490,16 +513,44 @@ with tab3:
     with col1:
         if st.button("Clear Knowledge Base"):
             # Confirm clearing
-            if st.checkbox("I understand this will delete ALL documents"):
+            confirm = st.checkbox("I understand this will delete ALL documents")
+            if confirm:
                 with st.spinner("Clearing knowledge base..."):
-                    result = st.session_state.rag_manager.clear_knowledge_base()
+                    # First, get document count to confirm what we're deleting
+                    doc_count = len(docs.get("documents", [])) if docs and docs.get("status") == "success" else 0
                     
-                    if result["status"] == "success":
-                        st.success(f"Knowledge base cleared: {result.get('message', '')}")
-                        # Refresh document list
-                        refresh_document_list()
+                    if doc_count > 0:
+                        st.info(f"Attempting to delete {doc_count} documents...")
+                        
+                        # Perform the clear operation
+                        result = st.session_state.rag_manager.clear_knowledge_base()
+                        
+                        if result["status"] == "success":
+                            st.success(f"Knowledge base cleared: {result.get('message', '')}")
+                            # Refresh document list
+                            refresh_document_list()
+                        else:
+                            st.error(f"Error clearing knowledge base: {result.get('message', 'Unknown error')}")
+                            # Offer alternative solution
+                            if st.button("Try Alternative Reset"):
+                                try:
+                                    # Completely reinitialize the RAG manager
+                                    embeddings_model = st.session_state.get("embeddings_model", "huggingface")
+                                    openai_api_key = st.session_state.api_keys.get("openai", "")
+                                    
+                                    st.session_state.rag_manager = RAGManager(
+                                        llm_adapter=st.session_state.llm_adapter,
+                                        embeddings_model=embeddings_model,
+                                        openai_api_key=openai_api_key,
+                                        db_dir="./data/rag_db",
+                                        use_simple_processor=True
+                                    )
+                                    st.success("RAG manager reinitialized successfully")
+                                    refresh_document_list()
+                                except Exception as e:
+                                    st.error(f"Error reinitializing RAG manager: {str(e)}")
                     else:
-                        st.error(f"Error clearing knowledge base: {result.get('message', 'Unknown error')}")
+                        st.success("Knowledge base is already empty.")
     
     with col2:
         if st.button("Export Knowledge Base Status"):

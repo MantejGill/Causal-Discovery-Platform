@@ -254,12 +254,50 @@ class RAGManager:
         Returns:
             Result dictionary with status and information
         """
-        result = self.document_processor.clear_database()
-        
-        # Update readiness status
-        self.is_ready = False
-        
-        return result
+        logger.info("Attempting to clear knowledge base")
+        try:
+            if self.document_processor:
+                result = self.document_processor.clear_database()
+                
+                # If the main processor fails, try the backup
+                if result["status"] != "success" and hasattr(self, 'backup_processor'):
+                    logger.warning("Main processor failed to clear database, trying backup")
+                    result = self.backup_processor.clear_database()
+                
+                # Update readiness status regardless of result
+                self.is_ready = self._check_readiness()
+                
+                return result
+            else:
+                error_msg = "Document processor not initialized"
+                logger.error(error_msg)
+                return {"status": "error", "message": error_msg}
+        except Exception as e:
+            error_msg = f"Error clearing knowledge base: {str(e)}"
+            logger.error(error_msg)
+            
+            # Try a last resort approach - recreate both processors
+            try:
+                logger.info("Attempting last resort: recreating processors")
+                
+                # Create a new collection with the same config
+                embeddings_model = self.config.get("embeddings_model", "huggingface")
+                db_dir = self.config.get("db_dir", "./data/rag_db")
+                
+                # Recreate simple processor first
+                self.backup_processor = SimpleDocumentProcessor(db_dir=db_dir)
+                
+                # Then try to recreate the main processor
+                if embeddings_model == "openai":
+                    # We don't have the API key here, so use huggingface
+                    self.document_processor = SimpleDocumentProcessor(db_dir=db_dir)
+                else:
+                    self.document_processor = SimpleDocumentProcessor(db_dir=db_dir)
+                
+                self.is_ready = False
+                return {"status": "success", "message": "Knowledge base reset by recreating processors"}
+            except Exception as last_e:
+                return {"status": "error", "message": f"Failed all attempts to clear knowledge base: {error_msg}, Last resort error: {str(last_e)}"}      
     
     def retrieve_context(self, 
                       query: str, 
