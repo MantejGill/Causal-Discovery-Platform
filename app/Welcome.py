@@ -28,7 +28,7 @@ for var in ['data_loaded', 'df', 'metadata', 'data_profile', 'preprocessor',
             }
         elif var == 'llm_settings':
             st.session_state[var] = {
-                "provider": "openai",
+                "provider": "openrouter",  # Default to OpenRouter
                 "openai_model": "gpt-4o",
                 "openrouter_model": "deepseek/deepseek-r1:free",
                 "temperature": 0.7,

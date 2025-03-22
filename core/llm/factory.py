@@ -4,6 +4,16 @@ from typing import Dict, Any, Optional
 from core.llm.adapter import LLMAdapter
 from core.llm.openai_adapter import OpenAIAdapter
 from core.llm.openrouter_adapter import OpenRouterAdapter
+from core.llm.rag_adapter import RAGLLMAdapter
+
+# Import RAG manager type for type checking
+try:
+    from core.rag.rag_manager import RAGManager
+except ImportError:
+    # Create a type alias for type checking if RAGManager is not available
+    from typing import Protocol
+    class RAGManager(Protocol):
+        def augment_prompt(self, prompt: str, system_prompt: Optional[str] = None) -> Dict[str, Any]: ...
 
 logger = logging.getLogger(__name__)
 
@@ -25,12 +35,19 @@ class LLMFactory:
                 - api_keys: Dictionary with API keys for different providers
                 - For OpenAI: openai_model, temperature, max_tokens
                 - For OpenRouter: openrouter_model, temperature, max_tokens
+                - Optional RAG configuration:
+                  - use_rag: Boolean flag to enable RAG
+                  - rag_manager: Optional instance of RAGManager
+                  - rag_db_dir: Directory for RAG database (if creating new manager)
+                  - embeddings_model: Model for embeddings ("openai" or "huggingface")
         
         Returns:
             An initialized LLM adapter or None if initialization fails
         """
         try:
+            # Create base adapter
             provider = config.get("provider", "openai")
+            base_adapter = None
             
             if provider == "openai":
                 api_key = config.get("api_keys", {}).get("openai")
@@ -42,7 +59,7 @@ class LLMFactory:
                 temperature = config.get("temperature", 0.7)
                 max_tokens = config.get("max_tokens", 1000)
                 
-                return OpenAIAdapter(
+                base_adapter = OpenAIAdapter(
                     api_key=api_key,
                     model=model,
                     temperature=temperature,
@@ -59,7 +76,7 @@ class LLMFactory:
                 temperature = config.get("temperature", 0.7)
                 max_tokens = config.get("max_tokens", 1000)
                 
-                return OpenRouterAdapter(
+                base_adapter = OpenRouterAdapter(
                     api_key=api_key,
                     model=model,
                     temperature=temperature,
@@ -69,6 +86,44 @@ class LLMFactory:
             else:
                 logger.error(f"Unknown LLM provider: {provider}")
                 return None
+            
+            # Check if RAG is enabled
+            use_rag = config.get("use_rag", False)
+            
+            if use_rag and base_adapter is not None:
+                try:
+                    # Import RAGManager here to avoid circular imports
+                    from core.rag.rag_manager import RAGManager
+                    
+                    # Get or create RAG manager
+                    rag_manager = config.get("rag_manager")
+                    
+                    if rag_manager is None:
+                        # Create new RAG manager with provided configuration
+                        logger.info("Creating new RAG manager")
+                        rag_manager = RAGManager(
+                            llm_adapter=base_adapter,
+                            embeddings_model=config.get("embeddings_model", "openai"),
+                            openai_api_key=config.get("api_keys", {}).get("openai"),
+                            db_dir=config.get("rag_db_dir", "./data/rag_db")
+                        )
+                    
+                    # Create RAG-enabled adapter
+                    logger.info(f"Creating RAG-enabled adapter wrapping {base_adapter.get_name()}")
+                    return RAGLLMAdapter(
+                        base_adapter=base_adapter,
+                        rag_manager=rag_manager
+                    )
+                except ImportError as e:
+                    logger.error(f"Could not import RAG components: {str(e)}")
+                    logger.warning("Falling back to base adapter without RAG")
+                    return base_adapter
+                except Exception as e:
+                    logger.error(f"Error creating RAG-enabled adapter: {str(e)}")
+                    logger.warning("Falling back to base adapter without RAG")
+                    return base_adapter
+            
+            return base_adapter
                 
         except Exception as e:
             logger.error(f"Error creating LLM adapter: {str(e)}")
@@ -108,3 +163,49 @@ class LLMFactory:
                 "free_tier": True
             }
         }
+    
+    @staticmethod
+    def create_rag_enabled_adapter(base_adapter: LLMAdapter, 
+                                rag_config: Dict[str, Any]) -> Optional[LLMAdapter]:
+        """
+        Create a RAG-enabled adapter wrapping an existing base adapter.
+        
+        Args:
+            base_adapter: Existing LLM adapter to wrap
+            rag_config: Configuration for RAG system
+                - openai_api_key: Optional API key for OpenAI embeddings
+                - embeddings_model: Model for embeddings ("openai" or "huggingface")
+                - db_dir: Directory for RAG database
+                - existing_rag_manager: Optional existing RAG manager to use
+        
+        Returns:
+            RAG-enabled LLM adapter or None if initialization fails
+        """
+        try:
+            # Import RAGManager here to avoid circular imports
+            from core.rag.rag_manager import RAGManager
+            
+            # Get or create RAG manager
+            rag_manager = rag_config.get("existing_rag_manager")
+            
+            if rag_manager is None:
+                # Create new RAG manager
+                rag_manager = RAGManager(
+                    llm_adapter=base_adapter,
+                    embeddings_model=rag_config.get("embeddings_model", "openai"),
+                    openai_api_key=rag_config.get("openai_api_key"),
+                    db_dir=rag_config.get("db_dir", "./data/rag_db")
+                )
+            
+            # Create RAG-enabled adapter
+            return RAGLLMAdapter(
+                base_adapter=base_adapter,
+                rag_manager=rag_manager
+            )
+            
+        except ImportError as e:
+            logger.error(f"Could not import RAG components: {str(e)}")
+            return None
+        except Exception as e:
+            logger.error(f"Error creating RAG-enabled adapter: {str(e)}")
+            return None

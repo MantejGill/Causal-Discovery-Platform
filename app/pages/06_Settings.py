@@ -8,6 +8,14 @@ from pathlib import Path
 from core.llm.adapter import LLMAdapter
 from core.llm.openai_adapter import OpenAIAdapter
 from core.llm.openrouter_adapter import OpenRouterAdapter
+from core.llm.factory import LLMFactory
+
+# Try to import RAG components (optional)
+try:
+    from core.rag.rag_manager import RAGManager
+    RAG_AVAILABLE = True
+except ImportError:
+    RAG_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -24,19 +32,27 @@ if 'api_keys' not in st.session_state:
     }
 if 'llm_settings' not in st.session_state:
     st.session_state.llm_settings = {
-        "provider": "openai",
+        "provider": "openrouter",  # Default to OpenRouter
         "openai_model": "gpt-4o",
         "openrouter_model": "deepseek/deepseek-r1:free",
         "temperature": 0.7,
         "max_tokens": 1000
     }
+if 'rag_enabled' not in st.session_state:
+    st.session_state.rag_enabled = False
+if 'rag_manager' not in st.session_state:
+    st.session_state.rag_manager = None
+if 'embeddings_model' not in st.session_state:
+    st.session_state.embeddings_model = "huggingface"  # Default to HuggingFace
 
 # Define the function to save settings to a file
 def save_settings_to_file():
     """Save settings to a JSON file (excluding API keys for security)"""
     settings_to_save = {
         "theme": st.session_state.theme,
-        "llm_settings": st.session_state.llm_settings
+        "llm_settings": st.session_state.llm_settings,
+        "rag_enabled": st.session_state.rag_enabled,
+        "embeddings_model": st.session_state.embeddings_model
     }
     
     # Create settings directory if it doesn't exist
@@ -64,6 +80,10 @@ def load_settings_from_file():
                 st.session_state.theme = settings["theme"]
             if "llm_settings" in settings:
                 st.session_state.llm_settings = settings["llm_settings"]
+            if "rag_enabled" in settings:
+                st.session_state.rag_enabled = settings["rag_enabled"]
+            if "embeddings_model" in settings:
+                st.session_state.embeddings_model = settings["embeddings_model"]
             
             st.success("Settings loaded successfully!")
         except Exception as e:
@@ -74,56 +94,32 @@ def load_settings_from_file():
 # Function to initialize LLM adapter based on settings
 def initialize_llm_adapter():
     """Initialize LLM adapter based on current settings"""
-    provider = st.session_state.llm_settings["provider"]
+    # Create configuration for LLM factory
+    config = {
+        "provider": st.session_state.llm_settings["provider"],
+        "openai_model": st.session_state.llm_settings.get("openai_model", "gpt-4o"),
+        "openrouter_model": st.session_state.llm_settings.get("openrouter_model", "deepseek/deepseek-r1:free"),
+        "temperature": st.session_state.llm_settings.get("temperature", 0.7),
+        "max_tokens": st.session_state.llm_settings.get("max_tokens", 1000),
+        "api_keys": st.session_state.api_keys,
+        "use_rag": st.session_state.get("rag_enabled", False),
+        "rag_manager": st.session_state.get("rag_manager", None),
+        "rag_db_dir": "./data/rag_db",
+        "embeddings_model": st.session_state.get("embeddings_model", "huggingface")  # Default to HuggingFace
+    }
     
-    if provider == "openai":
-        api_key = st.session_state.api_keys["openai"]
-        if not api_key:
-            st.error("OpenAI API key not set. Please enter your API key.")
-            return None
+    # Try to create adapter using factory
+    try:
+        adapter = LLMFactory.create_adapter(config)
         
-        model = st.session_state.llm_settings["openai_model"]
-        temperature = st.session_state.llm_settings["temperature"]
-        max_tokens = st.session_state.llm_settings["max_tokens"]
-        
-        try:
-            adapter = OpenAIAdapter(
-                api_key=api_key,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            st.success(f"Successfully initialized OpenAI adapter with model: {model}")
+        if adapter:
+            st.success(f"Successfully initialized {adapter.get_name()}")
             return adapter
-        except Exception as e:
-            st.error(f"Error initializing OpenAI adapter: {str(e)}")
+        else:
+            st.error("Failed to initialize LLM adapter")
             return None
-    
-    elif provider == "openrouter":
-        api_key = st.session_state.api_keys["openrouter"]
-        if not api_key:
-            st.error("OpenRouter API key not set. Please enter your API key.")
-            return None
-        
-        model = st.session_state.llm_settings["openrouter_model"]
-        temperature = st.session_state.llm_settings["temperature"]
-        max_tokens = st.session_state.llm_settings["max_tokens"]
-        
-        try:
-            adapter = OpenRouterAdapter(
-                api_key=api_key,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
-            st.success(f"Successfully initialized OpenRouter adapter with model: {model}")
-            return adapter
-        except Exception as e:
-            st.error(f"Error initializing OpenRouter adapter: {str(e)}")
-            return None
-    
-    else:
-        st.error(f"Unknown provider: {provider}")
+    except Exception as e:
+        st.error(f"Error initializing LLM adapter: {str(e)}")
         return None
 
 # Main app
@@ -238,6 +234,64 @@ with tab1:
         )
         st.session_state.llm_settings["max_tokens"] = max_tokens
     
+    # RAG Integration
+    st.header("RAG Integration")
+    
+    if RAG_AVAILABLE:
+        rag_enabled = st.toggle(
+            "Enable Retrieval-Augmented Generation",
+            value=st.session_state.get("rag_enabled", False),
+            help="Enhance LLMs with document retrieval from causal literature"
+        )
+        
+        st.session_state.rag_enabled = rag_enabled
+        
+        if rag_enabled:
+            st.markdown("""
+            With RAG enabled, the LLM will use your knowledge base of causal literature to provide
+            more accurate and domain-specific responses.
+            
+            To manage your knowledge base, go to the **Knowledge Base** page.
+            """)
+            
+            # Embedding model selection
+            embeddings_model = st.radio(
+                "Embeddings Model",
+                options=["huggingface", "openai"],
+                index=0 if st.session_state.embeddings_model == "huggingface" else 1,
+                help="Model to use for document embeddings. HuggingFace doesn't require an API key, but OpenAI may provide better quality for some use cases."
+            )
+            st.session_state.embeddings_model = embeddings_model
+            
+            # OpenAI model warning
+            if embeddings_model == "openai" and not st.session_state.api_keys.get("openai"):
+                st.warning("You selected OpenAI embeddings, but no OpenAI API key is provided. Please enter an OpenAI API key or switch to HuggingFace embeddings.")
+            
+            # Show RAG status if available
+            if "rag_manager" in st.session_state and st.session_state.rag_manager:
+                try:
+                    is_ready = st.session_state.rag_manager.is_ready
+                    status = st.session_state.rag_manager.get_status()
+                    
+                    if is_ready:
+                        st.success(f"RAG system is ready with {status['document_count']} documents ({status['chunk_count']} chunks)")
+                    else:
+                        st.warning("Knowledge base is empty. Please add documents in the Knowledge Base page.")
+                    
+                    # Add link to Knowledge Base page
+                    if st.button("Go to Knowledge Base"):
+                        # Use Streamlit navigation to go to the Knowledge Base page
+                        st.experimental_set_query_params(page="08_Knowledge_Base.py")
+                except Exception as e:
+                    st.error(f"Error checking RAG status: {str(e)}")
+    else:
+        st.warning("""
+        RAG components are not available. Make sure all dependencies are installed:
+        ```
+        pip install langchain langchain-community chromadb sentence-transformers pypdf2
+        ```
+        """)
+    
     # Initialize LLM button
     if st.button("Initialize LLM Adapter", key="initialize_llm"):
         st.session_state.llm_adapter = initialize_llm_adapter()
@@ -326,21 +380,32 @@ with tab3:
         st.subheader("Session State")
         
         # Show LLM settings (excluding API keys)
-        st.json({
+        debug_info = {
             "llm_settings": st.session_state.llm_settings,
             "theme": st.session_state.theme,
-            "llm_adapter_initialized": st.session_state.llm_adapter is not None
-        })
+            "llm_adapter_initialized": st.session_state.llm_adapter is not None,
+            "rag_enabled": st.session_state.rag_enabled,
+            "rag_available": RAG_AVAILABLE,
+            "rag_manager_initialized": st.session_state.rag_manager is not None,
+            "embeddings_model": st.session_state.embeddings_model
+        }
+        
+        st.json(debug_info)
 
 # Footer with additional info
 st.divider()
 st.markdown("""
-### About LLM Integration
+### About LLM and RAG Integration
 
 This application uses Large Language Models (LLMs) to enhance causal discovery by:
 - Refining causal graphs based on domain knowledge
 - Explaining causal relationships in natural language
 - Identifying potential hidden variables
+
+With Retrieval-Augmented Generation (RAG), you can:
+- Enhance the LLM with knowledge from causal literature
+- Get more accurate and domain-specific responses
+- Ground responses in specific sources with proper citations
 
 The LLM providers we support are:
 - **OpenAI**: Commercial provider with powerful models like GPT-4

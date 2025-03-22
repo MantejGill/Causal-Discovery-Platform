@@ -33,7 +33,7 @@ This platform enables domain experts without specialized statistical training to
 
 - Docker and Docker Compose (recommended)
 - Python 3.9+ (for local installation)
-- OpenAI API key (for LLM integration)
+- OpenAI API key or OpenRouter API key (for LLM integration)
 
 ### Installation with Docker (Recommended)
 
@@ -43,9 +43,15 @@ This platform enables domain experts without specialized statistical training to
    cd causal-discovery-platform
    ```
 
-2. Create a `.env` file with your OpenAI API key:
+2. Create a `.env` file with your API keys:
    ```bash
-   echo "OPENAI_API_KEY=your-api-key-here" > .env
+   cp .env.example .env
+   # Edit .env and add your API keys
+   ```
+
+   Alternatively, you can use the default OpenRouter key by running:
+   ```bash
+   echo "OPENROUTER_API_KEY=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" > .env
    ```
 
 3. Build and run with Docker Compose:
@@ -77,9 +83,17 @@ This platform enables domain experts without specialized statistical training to
    pip install -r requirements.txt
    ```
 
-4. Set your OpenAI API key:
+3. Set your API key (either OpenAI or OpenRouter):
    ```bash
+   # For OpenAI
    export OPENAI_API_KEY=your-api-key-here  # On Windows, use: set OPENAI_API_KEY=your-api-key-here
+   # OR for OpenRouter
+   export OPENROUTER_API_KEY=your-openrouter-key-here
+   ```
+
+   Alternatively, create a .env file in the project root:
+   ```bash
+   echo "OPENROUTER_API_KEY=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" > .env
    ```
 
 5. Run the application:
@@ -138,14 +152,27 @@ The platform supports a variety of causal discovery algorithms from the CausalLe
 - RCD (Recursive Causal Discovery)
 - CAM-UV (Causal Additive Model with Unobserved Variables)
 
-## LLM Integration
+### LLM Integration
 
-The platform currently supports OpenAI's models (GPT-3.5, GPT-4) for LLM-based refinement. The LLM is used to:
+The platform supports multiple LLM providers:
+
+1. **OpenAI**: GPT-4o, GPT-4o-mini, GPT-4-turbo, and GPT-3.5-turbo models
+2. **OpenRouter**: DeepSeek R1 (free, MIT-licensed model with performance comparable to OpenAI)
+
+The LLM is used to:
 
 1. Validate causal edges based on statistical evidence and domain knowledge
 2. Hypothesize potential hidden variables
 3. Generate natural language explanations of causal relationships
 4. Provide context-specific insights about the causal structure
+
+### RAG Integration (New!)
+
+The platform now includes Retrieval-Augmented Generation (RAG) capabilities:
+
+1. Upload domain-specific literature (PDFs, text files)
+2. Enhance LLM responses with knowledge from your documents
+3. Get more accurate and domain-specific causal analyses
 
 ## Contributing
 

@@ -8,6 +8,17 @@ scipy
 scikit-learn
 dotenv
 streamlit-elements
+langchain
+langchain-community
+chromadb
+sentence-transformers
+pypdf2
+pypdf
+langchain-huggingface
+langchain-openai
+langchain-chroma
+torch
+
 
 # UI components
 plotly-express
