@@ -135,7 +135,7 @@ with tab1:
         "LLM Provider",
         options=["openai", "openrouter"],
         index=0 if st.session_state.llm_settings["provider"] == "openai" else 1,
-        format_func=lambda x: {"openai": "OpenAI", "openrouter": "OpenRouter (DeepSeek R1)"}[x],
+        format_func=lambda x: {"openai": "OpenAI", "openrouter": "OpenRouter"}[x],
         help="Select the LLM provider to use for causal graph refinement and explanations"
     )
     
